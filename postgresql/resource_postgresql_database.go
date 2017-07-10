@@ -148,34 +148,45 @@ func resourcePostgreSQLDatabaseCreate(d *schema.ResourceData, meta interface{}) 
 	}
 
 	switch v, ok := d.GetOk(dbTemplateAttr); {
+	case ok && strings.ToUpper(v.(string)) == "DEFAULT":
+		fmt.Fprint(b, " TEMPLATE DEFAULT")
 	case ok:
 		fmt.Fprint(b, " TEMPLATE ", pq.QuoteIdentifier(v.(string)))
-	case v.(string) == "", strings.ToUpper(v.(string)) != "DEFAULT":
+	case v.(string) == "":
 		fmt.Fprint(b, " TEMPLATE template0")
 	}
 
 	switch v, ok := d.GetOk(dbEncodingAttr); {
+	case ok && strings.ToUpper(v.(string)) == "DEFAULT":
+		fmt.Fprintf(b, " ENCODING DEFAULT")
 	case ok:
 		fmt.Fprint(b, " ENCODING ", pq.QuoteIdentifier(v.(string)))
-	case v.(string) == "", strings.ToUpper(v.(string)) != "DEFAULT":
+	case v.(string) == "":
 		fmt.Fprint(b, ` ENCODING "UTF8"`)
 	}
 
 	switch v, ok := d.GetOk(dbCollationAttr); {
+	case ok && strings.ToUpper(v.(string)) == "DEFAULT":
+		fmt.Fprintf(b, " LC_COLLATE DEFAULT")
 	case ok:
 		fmt.Fprint(b, " LC_COLLATE ", pq.QuoteIdentifier(v.(string)))
-	case v.(string) == "", strings.ToUpper(v.(string)) != "DEFAULT":
+	case v.(string) == "":
 		fmt.Fprint(b, ` LC_COLLATE "C"`)
 	}
 
 	switch v, ok := d.GetOk(dbCTypeAttr); {
+	case ok && strings.ToUpper(v.(string)) == "DEFAULT":
+		fmt.Fprintf(b, " LC_CTYPE DEFAULT")
 	case ok:
 		fmt.Fprint(b, " LC_CTYPE ", pq.QuoteIdentifier(v.(string)))
 	case v.(string) == "", strings.ToUpper(v.(string)) != "DEFAULT":
 		fmt.Fprint(b, ` LC_CTYPE "C"`)
 	}
 
-	if v, ok := d.GetOk(dbTablespaceAttr); ok {
+	switch v, ok := d.GetOk(dbTablespaceAttr); {
+	case ok && strings.ToUpper(v.(string)) == "DEFAULT":
+		fmt.Fprint(b, " TABLESPACE DEFAULT")
+	case ok:
 		fmt.Fprint(b, " TABLESPACE ", pq.QuoteIdentifier(v.(string)))
 	}
 

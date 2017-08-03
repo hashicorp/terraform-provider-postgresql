@@ -62,6 +62,24 @@ func TestAccPostgresqlRole_Update(t *testing.T) {
 					resource.TestCheckResourceAttr("postgresql_role.update_role", "connection_limit", "5"),
 				),
 			},
+			{
+				Config: testAccPostgresqlRolePasswordUpdate1Config,
+				Check: resource.ComposeTestCheckFunc(
+					testAccCheckPostgresqlRoleExists("postgresql_role.update_role_password", "true"),
+					resource.TestCheckResourceAttr("postgresql_role.update_role_password", "name", "update_role"),
+					resource.TestCheckResourceAttr("postgresql_role.update_role_password", "login", "true"),
+					resource.TestCheckResourceAttr("postgresql_role.update_role_password", "password", "pass1"),
+				),
+			},
+			{
+				Config: testAccPostgresqlRolePasswordUpdate2Config,
+				Check: resource.ComposeTestCheckFunc(
+					testAccCheckPostgresqlRoleExists("postgresql_role.update_role_password", "true"),
+					resource.TestCheckResourceAttr("postgresql_role.update_role_password", "name", "update_role2"),
+					resource.TestCheckResourceAttr("postgresql_role.update_role_password", "login", "true"),
+					resource.TestCheckResourceAttr("postgresql_role.update_role_password", "password", "pass2"),
+				),
+			},
 		},
 	})
 }
@@ -190,5 +208,21 @@ resource "postgresql_role" "update_role" {
   name = "update_role2"
   login = true
   connection_limit = 5
+}
+`
+
+var testAccPostgresqlRolePasswordUpdate1Config = `
+resource "postgresql_role" "update_role_password" {
+  name     = "update_role_password"
+  login    = true
+  password = "pass1"
+}
+`
+
+var testAccPostgresqlRolePasswordUpdate2Config = `
+resource "postgresql_role" "update_role_password" {
+  name     = "update_role_password"
+  login    = true
+  password = "pass2"
 }
 `

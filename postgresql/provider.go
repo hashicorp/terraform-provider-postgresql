@@ -60,6 +60,12 @@ func Provider() terraform.ResourceProvider {
 				Optional:   true,
 				Deprecated: "Rename PostgreSQL provider `ssl_mode` attribute to `sslmode`",
 			},
+			"connection_string": {
+				Type:        schema.TypeString,
+				Optional:    true,
+				DefaultFunc: schema.EnvDefaultFunc("PGCONNSTRING", nil),
+				Description: "The libPQ style connection string for the database to connect to",
+			},
 			"connect_timeout": {
 				Type:         schema.TypeInt,
 				Optional:     true,
@@ -130,17 +136,41 @@ func providerConfigure(d *schema.ResourceData) (interface{}, error) {
 	versionStr := d.Get("expected_version").(string)
 	version, _ := semver.Parse(versionStr)
 
-	config := Config{
-		Host:              d.Get("host").(string),
-		Port:              d.Get("port").(int),
-		Database:          d.Get("database").(string),
-		Username:          d.Get("username").(string),
-		Password:          d.Get("password").(string),
-		SSLMode:           sslMode,
-		ApplicationName:   tfAppName(),
-		ConnectTimeoutSec: d.Get("connect_timeout").(int),
-		MaxConns:          d.Get("max_connections").(int),
-		ExpectedVersion:   version,
+	var config Config
+	connString := d.Get("connection_string").(string)
+
+	if connString != "" {
+		conn, err := parseConnectionString(connString)
+
+		if err != nil {
+			return nil, errwrap.Wrapf("Error parsing PostgreSQL connection string: {{err}}", err)
+		}
+
+		config = Config{
+			Host:              conn.netloc,
+			Port:              conn.port,
+			Database:          conn.dbname,
+			Username:          conn.username,
+			Password:          conn.password,
+			SSLMode:           conn.sslmode,
+			ApplicationName:   tfAppName(),
+			ConnectTimeoutSec: d.Get("connect_timeout").(int),
+			MaxConns:          d.Get("max_connections").(int),
+			ExpectedVersion:   version,
+		}
+	} else {
+		config = Config{
+			Host:              d.Get("host").(string),
+			Port:              d.Get("port").(int),
+			Database:          d.Get("database").(string),
+			Username:          d.Get("username").(string),
+			Password:          d.Get("password").(string),
+			SSLMode:           sslMode,
+			ApplicationName:   tfAppName(),
+			ConnectTimeoutSec: d.Get("connect_timeout").(int),
+			MaxConns:          d.Get("max_connections").(int),
+			ExpectedVersion:   version,
+		}
 	}
 
 	client, err := config.NewClient()

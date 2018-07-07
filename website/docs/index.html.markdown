@@ -26,6 +26,15 @@ provider "postgresql" {
 }
 ```
 
+or
+
+```hcl
+provider "postgresql" {
+  connection_string = "postgres://postgres_user:postgres_password@postgres_server_ip:5432/postgres?sslmode=require"
+  connect_timeout = 15
+}
+```
+
 Configuring multiple servers can be done by specifying the alias option.
 
 ```hcl
@@ -58,7 +67,7 @@ resource "postgresql_database" "my_db2" {
 
 The following arguments are supported:
 
-* `host` - (Required) The address for the postgresql server connection.
+* `host` - (Required unless `connection_string` is provided) The address for the postgresql server connection.
 * `port` - (Optional) The port for the postgresql server connection. The default is `5432`.
 * `database` - (Optional) Database to connect to. The default is `postgres`.
 * `username` - (Required) Username for the server connection.
@@ -83,3 +92,4 @@ The following arguments are supported:
   Version](https://www.postgresql.org/support/versioning/) or `current`.  Once a
   connection has been established, Terraform will fingerprint the actual
   version.  Default: `9.0.0`.
+* `connection_string` - (Required unless `host` is provided) The libPQ style connection string for the postgres server connection

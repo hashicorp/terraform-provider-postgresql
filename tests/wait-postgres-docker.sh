@@ -11,7 +11,7 @@ fi
 
 echo "Waiting for database to be up"
 i=0
-until docker-compose -f "$COMPOSE_FILE" logs postgres | grep "ready to accept connections" > /dev/null; do
+until docker-compose -f "$COMPOSE_FILE" logs postgres | grep "ready to accept connections"; do
     i=$((i + 1))
     if [ $i -eq $TIMEOUT ]; then
         echo

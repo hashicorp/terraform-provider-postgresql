@@ -108,6 +108,8 @@ resource "postgresql_role" "my_replication_role" {
   an implicit
   [`DROP OWNED`](https://www.postgresql.org/docs/current/static/sql-drop-owned.html)).
 
+* `roles` - (Optional) Role(s) to grant to this new role.
+
 ## Import Example
 
 `postgresql_role` supports importing resources.  Supposing the following

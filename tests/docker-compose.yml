@@ -1,9 +1,18 @@
 version: "3"
 
 services:
-    postgres:
-        image: postgres:${PGVERSION:-latest}
-        environment:
-            POSTGRES_PASSWORD: ${PGPASSWORD}
-        ports:
-            - 25432:5432
+  postgres:
+    image: postgres:${PGVERSION:-latest}
+    environment:
+      POSTGRES_PASSWORD: ${PGPASSWORD}
+    ports:
+      - "25432:5432"
+  ssh:
+    image: panubo/sshd:1.0.1
+    environment:
+      SSH_USERS: test:1001:1001
+    ports:
+      - "20022:22"
+    volumes:
+      - ./ssh-keys/test.pub:/etc/authorized_keys/test
+      - ./ssh-host-keys:/etc/ssh/keys/

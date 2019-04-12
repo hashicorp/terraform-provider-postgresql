@@ -26,20 +26,35 @@ func testCheckCompatibleVersion(t *testing.T, feature featureName) {
 	}
 }
 
-func getTestConfig(t *testing.T) Config {
-	getEnv := func(key, fallback string) string {
-		value := os.Getenv(key)
-		if len(value) == 0 {
-			return fallback
-		}
-		return value
+func getEnv(key, fallback string) string {
+	value := os.Getenv(key)
+	if len(value) == 0 {
+		return fallback
 	}
+	return value
+}
 
+func getTestConfig(t *testing.T) Config {
 	dbPort, err := strconv.Atoi(getEnv("PGPORT", "5432"))
 	if err != nil {
 		t.Fatalf("could not cast PGPORT value as integer: %v", err)
 	}
 
+	return Config{
+		Host:     getEnv("PGHOST", "localhost"),
+		Port:     dbPort,
+		Username: getEnv("PGUSER", ""),
+		Password: getEnv("PGPASSWORD", ""),
+		SSLMode:  getEnv("PGSSLMODE", ""),
+	}
+}
+
+func getTestSshConfig(t *testing.T) Config {
+	dbPort, err := strconv.Atoi(getEnv("PGPORT", "5432"))
+	if err != nil {
+		t.Fatalf("could not cast PGPORT value as integer: %v", err)
+	}
+	// TODO define variable names
 	return Config{
 		Host:     getEnv("PGHOST", "localhost"),
 		Port:     dbPort,

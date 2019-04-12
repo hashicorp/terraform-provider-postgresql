@@ -7,5 +7,7 @@ require (
 	github.com/lib/pq v0.0.0-20170117205633-67c3f2a8884c
 	github.com/sean-/postgresql-acl v0.0.0-20161225120419-d10489e5d217
 	github.com/smartystreets/assertions v0.0.0-20190215210624-980c5ac6f3ac // indirect
+	github.com/xanzy/ssh-agent v0.2.1
+	golang.org/x/crypto v0.0.0-20190219172222-a4c6cb3142f2
 	golang.org/x/text v0.3.0 // indirect
 )

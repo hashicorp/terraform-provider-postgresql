@@ -21,3 +21,15 @@ until docker-compose -f "$COMPOSE_FILE" logs postgres | grep "ready to accept co
     printf "."
     sleep 1
 done
+
+echo "Waiting for ssh to be up"
+until docker-compose -f "$COMPOSE_FILE" logs ssh | grep "Running /usr/sbin/sshd" > /dev/null; do
+    i=$((i + 1))
+    if [ $i -eq $TIMEOUT ]; then
+        echo
+        echo "Timeout while waiting for ssh to be up"
+        exit 1
+    fi
+    printf "."
+    sleep 1
+done

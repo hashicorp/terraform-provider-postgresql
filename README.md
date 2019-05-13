@@ -59,5 +59,7 @@ In order to run the full suite of Acceptance tests, run `make testacc`.
 *Note:* Acceptance tests create real resources, and often cost money to run.
 
 ```sh
+$ make testacc_setup # spins up a local docker postgres container
 $ make testacc
+$ make testacc_cleanup # cleans the env and tears down the postgres container
 ```

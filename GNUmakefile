@@ -14,13 +14,13 @@ test: fmtcheck
 		xargs -t -n4 go test $(TESTARGS) -timeout=30s -parallel=4
 
 testacc_setup: fmtcheck
-	source $(CURDIR)/tests/env.sh && sh -c "'$(CURDIR)/tests/testacc_setup.sh'"
+	. $(CURDIR)/tests/env.sh && sh -c "'$(CURDIR)/tests/testacc_setup.sh'"
 
 testacc_cleanup: fmtcheck
-	source $(CURDIR)/tests/env.sh && sh -c "'$(CURDIR)/tests/testacc_cleanup.sh'"
+	. $(CURDIR)/tests/env.sh && sh -c "'$(CURDIR)/tests/testacc_cleanup.sh'"
 
 testacc: fmtcheck
-	source $(CURDIR)/tests/env.sh && sh -c "'$(CURDIR)/tests/testacc_run.sh'"
+	. $(CURDIR)/tests/env.sh && sh -c "'$(CURDIR)/tests/testacc_run.sh'"
 
 vet:
 	@echo "go vet ."

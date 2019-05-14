@@ -24,9 +24,7 @@ script:
 - make test
 - make vet
 - make website-test
-- make testacc_setup
 - make testacc
-- make testacc_cleanup
 
 branches:
   only:

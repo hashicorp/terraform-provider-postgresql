@@ -20,7 +20,7 @@ testacc_cleanup: fmtcheck
 	. $(CURDIR)/tests/env.sh && sh -c "'$(CURDIR)/tests/testacc_cleanup.sh'"
 
 testacc: fmtcheck
-	. $(CURDIR)/tests/env.sh && sh -c "'$(CURDIR)/tests/testacc_run.sh'"
+	@sh -c "'$(CURDIR)/tests/testacc_full.sh'"
 
 vet:
 	@echo "go vet ."

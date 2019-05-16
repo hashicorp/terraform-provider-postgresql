@@ -13,6 +13,7 @@ setup() {
 
 run() {
   go clean -testcache
+  source "$(pwd)"/tests/env.sh
   TF_ACC=1 go test ./postgresql -v -timeout 120m
   
   # for a single test comment the previous line and uncomment the next line

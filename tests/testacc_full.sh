@@ -8,7 +8,6 @@ log() {
 }
 
 setup() {
-    source "$(pwd)"/tests/env.sh
     sh "$(pwd)"/tests/testacc_setup.sh
 }
 

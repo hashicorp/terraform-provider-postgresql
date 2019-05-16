@@ -14,10 +14,10 @@ test: fmtcheck
 		xargs -t -n4 go test $(TESTARGS) -timeout=30s -parallel=4
 
 testacc_setup: fmtcheck
-	. $(CURDIR)/tests/env.sh && sh -c "'$(CURDIR)/tests/testacc_setup.sh'"
+	@sh -c "'$(CURDIR)/tests/testacc_setup.sh'"
 
 testacc_cleanup: fmtcheck
-	. $(CURDIR)/tests/env.sh && sh -c "'$(CURDIR)/tests/testacc_cleanup.sh'"
+	@sh -c "'$(CURDIR)/tests/testacc_cleanup.sh'"
 
 testacc: fmtcheck
 	@sh -c "'$(CURDIR)/tests/testacc_full.sh'"

@@ -2,6 +2,7 @@ package postgresql
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/blang/semver"
 	"github.com/hashicorp/errwrap"
@@ -11,7 +12,16 @@ import (
 
 const (
 	defaultProviderMaxOpenConnections = uint(4)
-	defaultExpectedPostgreSQLVersion  = "9.0.0"
+
+	defaultExpectedPostgreSQLVersion = "9.0.0"
+
+	defaultSshUser = "root"
+
+	// defaultSshPort is used if there is no port given
+	defaultSshPort = 22
+
+	// defaultSshTimeout is used if there is no timeout given
+	defaultSshTimeout = 5 * time.Minute
 )
 
 // Provider returns a terraform.ResourceProvider.
@@ -49,7 +59,7 @@ func Provider() terraform.ResourceProvider {
 				Description: "Password to be used if the PostgreSQL server demands password authentication",
 				Sensitive:   true,
 			},
-			// Conection username can be different than database username with user name mapas (e.g.: in Azure)
+			// Connection username can be different than database username with user name maps (e.g.: in Azure)
 			// See https://www.postgresql.org/docs/current/auth-username-maps.html
 			"database_username": {
 				Type:        schema.TypeString,
@@ -96,6 +106,60 @@ func Provider() terraform.ResourceProvider {
 				Default:      defaultExpectedPostgreSQLVersion,
 				Description:  "Specify the expected version of PostgreSQL.",
 				ValidateFunc: validateExpectedVersion,
+			},
+			"connection": {
+				Type:        schema.TypeList,
+				Optional:    true,
+				Description: "", // TODO
+				MaxItems:    1,
+				// TODO validate the connection configuration
+				Elem: &schema.Resource{
+					Schema: map[string]*schema.Schema{
+						"bastion_user": {
+							Type:        schema.TypeString,
+							Optional:    true,
+							Default:     defaultSshUser,
+							Description: "The user for the connection to the bastion host. Defaults to the value of the user field.",
+						},
+						"bastion_password": {
+							Type:        schema.TypeString,
+							Optional:    true,
+							Description: "",
+						},
+						"bastion_private_key": {
+							Type:        schema.TypeString,
+							Optional:    true,
+							Description: "The contents of an SSH key file to use for the bastion host.",
+						},
+						"bastion_host": {
+							Type:        schema.TypeString,
+							Required:    true,
+							Description: "Setting this enables the bastion Host connection. This host will be connected to first, and then the host connection will be made from there.",
+						},
+						"bastion_host_key": {
+							Type:        schema.TypeString,
+							Optional:    true,
+							Description: "The public key from the remote host or the signing CA, used to verify the host connection.",
+						},
+						"bastion_port": {
+							Type:        schema.TypeInt,
+							Optional:    true,
+							Default:     defaultSshPort,
+							Description: "The port to use connect to the bastion host. Defaults to the value of the port field.",
+						},
+						"timeout": {
+							Type:        schema.TypeString,
+							Optional:    true,
+							Description: "The timeout to wait for the connection to become available. This defaults to 5 minutes.",
+						},
+						"agent": {
+							Type:        schema.TypeBool,
+							Optional:    true,
+							Default:     true,
+							Description: "Set to false to disable using ssh-agent to authenticate.",
+						},
+					},
+				},
 			},
 		},
 
@@ -160,6 +224,26 @@ func providerConfigure(d *schema.ResourceData) (interface{}, error) {
 		ConnectTimeoutSec: d.Get("connect_timeout").(int),
 		MaxConns:          d.Get("max_connections").(int),
 		ExpectedVersion:   version,
+	}
+
+	// TODO configure using a hashset?
+
+	if conns, ok := d.Get("connection").([]interface{}); ok && len(conns) == 1 {
+		conn := conns[0].(map[string]interface{})
+
+		config.SshUser = conn["bastion_user"].(string)
+		config.SshPassword = conn["bastion_password"].(string)
+		config.SshPrivateKey = conn["bastion_private_key"].(string)
+		config.SshHost = conn["bastion_host"].(string)
+		config.SshHostKey = conn["bastion_host_key"].(string)
+		config.SshPort = conn["bastion_port"].(int)
+
+		// TODO allow configure timeout (with correct parsing)
+		//config.Timeout = conn["timeout"].(int)
+
+		config.SshAgent = conn["agent"].(bool)
+
+		config.Ssh = config.SshHost != ""
 	}
 
 	client, err := config.NewClient(d.Get("database").(string))

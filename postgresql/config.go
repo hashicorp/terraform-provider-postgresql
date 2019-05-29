@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"database/sql"
 	"fmt"
+	"golang.org/x/crypto/ssh"
 	"log"
 	"strings"
 	"sync"
@@ -87,6 +88,15 @@ type Config struct {
 	ConnectTimeoutSec int
 	MaxConns          int
 	ExpectedVersion   semver.Version
+	Ssh               bool
+	SshUser           string
+	SshPassword       string
+	SshPrivateKey     string
+	SshHost           string
+	SshHostKey        string
+	SshPort           int
+	SshTimeout        int
+	SshAgent          bool
 }
 
 // Client struct holding connection string
@@ -117,17 +127,47 @@ func (c *Config) NewClient(database string) (*Client, error) {
 	dbRegistryLock.Lock()
 	defer dbRegistryLock.Unlock()
 
+	// TODO add ssh config to connstr
 	dsn := c.connStr(database)
 	dbEntry, found := dbRegistry[dsn]
 	if !found {
-		db, err := sql.Open("postgres", dsn)
+		driverName := "postgres"
+
+		if c.Ssh {
+			// Establish connection via an ssh bastion host
+			driverName = "postgres+ssh"
+
+			// Configuration
+			sshConfig, err := prepareSSHConfig(c)
+			if err != nil {
+				return nil, err
+			}
+
+			// TODO can we use the sshConfig.connection approach?
+
+			// TODO how to support timeout?
+
+			// Connect
+			sshClient, err := ssh.Dial("tcp", fmt.Sprintf("%s:%d", c.SshHost, c.SshPort), sshConfig.config)
+			if err != nil {
+				return nil, err
+			}
+
+			// TODO when to close the ssh connection?
+
+			// Register postgres+ssh
+			sql.Register(driverName, &postgresqlSshDriver{
+				sshClient: sshClient})
+		}
+
+		db, err := sql.Open(driverName, dsn)
 		if err != nil {
 			return nil, errwrap.Wrapf("Error connecting to PostgreSQL server: {{err}}", err)
 		}
 
 		// We don't want to retain connection
 		// So when we connect on a specific database which might be managed by terraform,
-		// we don't keep opened connection in case of the db has to be dopped in the plan.
+		// we don't keep opened connection in case of the db has to be dropped in the plan.
 		db.SetMaxIdleConns(0)
 		db.SetMaxOpenConns(c.MaxConns)
 
@@ -179,7 +219,11 @@ func (c *Config) connStr(database string) string {
 			"user=%s",
 			"password=%s",
 			"sslmode=%s",
-			"connect_timeout=%d",
+		}
+
+		// connect_timeout is not supported when using ssh tunnel
+		if !c.Ssh {
+			dsnFmtParts = append(dsnFmtParts, "connect_timeout=%d")
 		}
 
 		if c.featureSupported(featureFallbackApplicationName) {
@@ -226,7 +270,9 @@ func (c *Config) connStr(database string) string {
 			quote(c.Username),
 			quote("<redacted>"),
 			quote(c.SSLMode),
-			c.ConnectTimeoutSec,
+		}
+		if !c.Ssh {
+			logValues = append(logValues, c.ConnectTimeoutSec)
 		}
 		if c.featureSupported(featureFallbackApplicationName) {
 			logValues = append(logValues, quote(c.ApplicationName))
@@ -245,7 +291,9 @@ func (c *Config) connStr(database string) string {
 			quote(c.Username),
 			quote(c.Password),
 			quote(c.SSLMode),
-			c.ConnectTimeoutSec,
+		}
+		if !c.Ssh {
+			connValues = append(connValues, c.ConnectTimeoutSec)
 		}
 		if c.featureSupported(featureFallbackApplicationName) {
 			connValues = append(connValues, quote(c.ApplicationName))

@@ -173,7 +173,7 @@ func resourcePostgreSQLExtensionReadImpl(d *schema.ResourceData, meta interface{
 	err = txn.QueryRow(query, d.Get(extNameAttr).(string)).Scan(&extName, &extSchema, &extVersion)
 	switch {
 	case err == sql.ErrNoRows:
-		log.Printf("[WARN] PostgreSQL extension (%s) not found", d.Get(extNameAttr).(string))
+		log.Printf("[WARN] PostgreSQL extension (%s) not found for database %s", d.Get(extNameAttr).(string), database)
 		d.SetId("")
 		return nil
 	case err != nil:
@@ -184,7 +184,7 @@ func resourcePostgreSQLExtensionReadImpl(d *schema.ResourceData, meta interface{
 	d.Set(extSchemaAttr, extSchema)
 	d.Set(extVersionAttr, extVersion)
 	d.Set(extDatabaseAttr, database)
-	d.SetId(generateExtensionID(d, meta.(*Client)))
+	d.SetId(generateExtensionID(d, c))
 
 	return nil
 }

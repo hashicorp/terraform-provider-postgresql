@@ -85,6 +85,11 @@ func testAccCheckPostgresqlExtensionExists(n string) resource.TestCheckFunc {
 			return fmt.Errorf("No Attribute for database is set")
 		}
 
+		extName, ok := rs.Primary.Attributes[extNameAttr]
+		if !ok {
+			return fmt.Errorf("No Attribute for extension name is set")
+		}
+
 		client := testAccProvider.Meta().(*Client)
 		txn, err := startTransaction(client, database)
 		if err != nil {
@@ -92,7 +97,7 @@ func testAccCheckPostgresqlExtensionExists(n string) resource.TestCheckFunc {
 		}
 		defer deferredRollback(txn)
 
-		exists, err := checkExtensionExists(txn, getExtensionNameFromID(rs.Primary.ID))
+		exists, err := checkExtensionExists(txn, extName)
 
 		if err != nil {
 			return fmt.Errorf("Error checking extension %s", err)

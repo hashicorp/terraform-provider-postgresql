@@ -122,7 +122,17 @@ func resourcePostgreSQLExtensionExists(d *schema.ResourceData, meta interface{})
 
 	var extensionName string
 
-	database := getDatabaseForExtension(d, c)
+	database, extName, err := getDBExtName(d, c)
+	if err != nil {
+		return false, err
+	}
+
+	// Check if the database exists
+	exists, err := dbExists(c.DB(), database)
+	if err != nil || !exists {
+		return false, err
+	}
+
 	txn, err := startTransaction(c, database)
 	if err != nil {
 		return false, err
@@ -130,7 +140,7 @@ func resourcePostgreSQLExtensionExists(d *schema.ResourceData, meta interface{})
 	defer deferredRollback(txn)
 
 	query := "SELECT extname FROM pg_catalog.pg_extension WHERE extname = $1"
-	err = txn.QueryRow(query, d.Get(extNameAttr).(string)).Scan(&extensionName)
+	err = txn.QueryRow(query, extName).Scan(&extensionName)
 	switch {
 	case err == sql.ErrNoRows:
 		return false, nil
@@ -159,21 +169,25 @@ func resourcePostgreSQLExtensionRead(d *schema.ResourceData, meta interface{}) e
 
 func resourcePostgreSQLExtensionReadImpl(d *schema.ResourceData, meta interface{}) error {
 	c := meta.(*Client)
-	database := getDatabaseForExtension(d, c)
+	database, extName, err := getDBExtName(d, c)
+	if err != nil {
+		return err
+	}
+
 	txn, err := startTransaction(c, database)
 	if err != nil {
 		return err
 	}
 	defer deferredRollback(txn)
 
-	var extName, extSchema, extVersion string
-	query := `SELECT e.extname, n.nspname, e.extversion ` +
+	var extSchema, extVersion string
+	query := `SELECT n.nspname, e.extversion ` +
 		`FROM pg_catalog.pg_extension e, pg_catalog.pg_namespace n ` +
 		`WHERE n.oid = e.extnamespace AND e.extname = $1`
-	err = txn.QueryRow(query, d.Get(extNameAttr).(string)).Scan(&extName, &extSchema, &extVersion)
+	err = txn.QueryRow(query, extName).Scan(&extSchema, &extVersion)
 	switch {
 	case err == sql.ErrNoRows:
-		log.Printf("[WARN] PostgreSQL extension (%s) not found for database %s", d.Get(extNameAttr).(string), database)
+		log.Printf("[WARN] PostgreSQL extension (%s) not found for database %s", extName, database)
 		d.SetId("")
 		return nil
 	case err != nil:
@@ -318,11 +332,30 @@ func getDatabaseForExtension(d *schema.ResourceData, client *Client) string {
 
 func generateExtensionID(d *schema.ResourceData, client *Client) string {
 	return strings.Join([]string{
-		d.Get(extNameAttr).(string), getDatabaseForExtension(d, client),
+		getDatabaseForExtension(d, client), d.Get(extNameAttr).(string),
 	}, ".")
 }
 
 func getExtensionNameFromID(ID string) string {
 	splitted := strings.Split(ID, ".")
-	return strings.Join(splitted[:len(splitted)-1], "")
+	return splitted[0]
+}
+
+// getDBExtName returns database and extension name. If we are importing this resource, they will be parsed
+// from the resource ID (it will return an error if parsing failed) otherwise they will be simply
+// get from the state.
+func getDBExtName(d *schema.ResourceData, client *Client) (string, string, error) {
+	database := getDatabaseForExtension(d, client)
+	extName := d.Get(extNameAttr).(string)
+
+	// When importing, we have to parse the ID to find extension and database names.
+	if extName == "" {
+		parsed := strings.Split(d.Id(), ".")
+		if len(parsed) != 2 {
+			return "", "", fmt.Errorf("extension ID %s has not the expected format 'database-extension': %v", d.Id(), parsed)
+		}
+		database = parsed[0]
+		extName = parsed[1]
+	}
+	return database, extName, nil
 }

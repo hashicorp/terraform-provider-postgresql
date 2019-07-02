@@ -53,6 +53,7 @@ func resourcePostgreSQLExtension() *schema.Resource {
 				Type:        schema.TypeString,
 				Optional:    true,
 				Computed:    true,
+				ForceNew:    true,
 				Description: "Sets the database to add the extension to",
 			},
 		},

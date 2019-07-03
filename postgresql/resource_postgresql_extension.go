@@ -353,7 +353,7 @@ func getDBExtName(d *schema.ResourceData, client *Client) (string, string, error
 	if extName == "" {
 		parsed := strings.Split(d.Id(), ".")
 		if len(parsed) != 2 {
-			return "", "", fmt.Errorf("extension ID %s has not the expected format 'database-extension': %v", d.Id(), parsed)
+			return "", "", fmt.Errorf("extension ID %s has not the expected format 'database.extension': %v", d.Id(), parsed)
 		}
 		database = parsed[0]
 		extName = parsed[1]

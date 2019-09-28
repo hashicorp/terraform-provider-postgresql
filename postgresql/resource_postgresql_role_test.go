@@ -87,7 +87,7 @@ resource "postgresql_role" "update_role" {
   connection_limit = 5
   password = "titi"
   roles = ["${postgresql_role.group_role.name}"]
-  searchpath = ["mysearchpath"]
+  search_path = ["mysearchpath"]
 }
 `
 	resource.Test(t, resource.TestCase{
@@ -265,7 +265,7 @@ func checkSearchPath(client *Client, roleName string, expectedSearchPath []strin
 
 	// The query returns ErrNoRows if the search path hasn't been altered.
 	if err != nil && err == sql.ErrNoRows {
-		searchPathStr = "\"$user\",public"
+		searchPathStr = "\"$user\", public"
 	} else if err != nil {
 		return fmt.Errorf("Error reading search_path: %v", err)
 	}
@@ -336,7 +336,7 @@ resource "postgresql_role" "sub_role" {
 
 resource "postgresql_role" "role_with_search_path" {
   name = "role_with_search_path"
-  searchpath = ["bar","foo"]
+  search_path = ["bar", "foo"]
 }
 
 resource "postgresql_role" "role_with_superuser" {

@@ -87,7 +87,7 @@ resource "postgresql_role" "my_replication_role" {
 
 * `roles` - (Optional) Defines list of roles which will be granted to this new role.
 
-* `searchpath` - (Optional) Alters the search path of this new role.
+* `search_path` - (Optional) Alters the search path of this new role.
 
 * `valid_until` - (Optional) Defines the date and time after which the role's
   password is no longer valid.  Established connections past this `valid_time`

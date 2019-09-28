@@ -30,7 +30,7 @@ const (
 	roleSuperuserAttr         = "superuser"
 	roleValidUntilAttr        = "valid_until"
 	roleRolesAttr             = "roles"
-	roleSearchPathAttr        = "searchpath"
+	roleSearchPathAttr        = "search_path"
 
 	// Deprecated options
 	roleDepEncryptedAttr = "encrypted"
@@ -450,14 +450,14 @@ func resourcePostgreSQLRoleReadImpl(c *Client, d *schema.ResourceData) error {
 
 // readSearchPath searches for a search_path entry in the rolconfig array.
 // In case no such value is present, it returns DEFAULT.
-func readSearchPath(roleConfig pq.ByteaArray) string {
+func readSearchPath(roleConfig pq.ByteaArray) []string {
 	for _, v := range roleConfig {
 		config := string(v)
 		if strings.HasPrefix(config, roleSearchPathAttr) {
-			return strings.TrimPrefix(config, roleSearchPathAttr+"=")
+			return strings.Split(strings.TrimPrefix(config, roleSearchPathAttr+"="), ", ")
 		}
 	}
-	return "DEFAULT"
+	return []string{"DEFAULT"}
 }
 
 // readRolePassword reads password either from Postgres if admin user is a superuser
@@ -867,7 +867,7 @@ func alterSearchPath(txn *sql.Tx, d *schema.ResourceData) error {
 	} else {
 		searchPathString = []string{"DEFAULT"}
 	}
-	searchPath := strings.Join(searchPathString[:], ",")
+	searchPath := strings.Join(searchPathString[:], ", ")
 
 	query := fmt.Sprintf(
 		"ALTER ROLE %s SET search_path TO %s", pq.QuoteIdentifier(role), searchPath,

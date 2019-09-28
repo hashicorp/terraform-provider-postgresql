@@ -297,7 +297,7 @@ resource "postgresql_role" "role_with_pwd_encr" {
   name = "role_with_pwd_encr"
   login = true
   password = "mypass"
-  encrypted = true
+  encrypted_password = true
 }
 
 resource "postgresql_role" "role_simple" {

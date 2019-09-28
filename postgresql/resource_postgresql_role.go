@@ -862,6 +862,9 @@ func alterSearchPath(txn *sql.Tx, d *schema.ResourceData) error {
 	if len(searchPathInterface) > 0 {
 		searchPathString = make([]string, len(searchPathInterface))
 		for i, searchPathPart := range searchPathInterface {
+			if strings.Contains(searchPathPart.(string), ", ") {
+				return fmt.Errorf("search_path cannot contain `, `: %v", searchPathPart)
+			}
 			searchPathString[i] = pq.QuoteIdentifier(searchPathPart.(string))
 		}
 	} else {

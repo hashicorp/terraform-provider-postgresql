@@ -16,10 +16,11 @@ import (
 )
 
 const (
-	schemaNameAttr    = "name"
-	schemaOwnerAttr   = "owner"
-	schemaPolicyAttr  = "policy"
-	schemaIfNotExists = "if_not_exists"
+	schemaNameAttr     = "name"
+	schemaDatabaseAttr = "database"
+	schemaOwnerAttr    = "owner"
+	schemaPolicyAttr   = "policy"
+	schemaIfNotExists  = "if_not_exists"
 
 	schemaPolicyCreateAttr          = "create"
 	schemaPolicyCreateWithGrantAttr = "create_with_grant"
@@ -44,6 +45,11 @@ func resourcePostgreSQLSchema() *schema.Resource {
 				Type:        schema.TypeString,
 				Required:    true,
 				Description: "The name of the schema",
+			},
+			schemaDatabaseAttr: {
+				Type:        schema.TypeString,
+				Required:    true,
+				Description: "The database name to alter schema",
 			},
 			schemaOwnerAttr: {
 				Type:        schema.TypeString,
@@ -155,10 +161,12 @@ func resourcePostgreSQLSchemaCreate(d *schema.ResourceData, meta interface{}) er
 		queries = append(queries, policy.Grants(schemaName)...)
 	}
 
+	database := d.Get(schemaDatabaseAttr).(string)
+
 	c.catalogLock.Lock()
 	defer c.catalogLock.Unlock()
 
-	txn, err := c.DB().Begin()
+	txn, err := startTransaction(c, database)
 	if err != nil {
 		return err
 	}
@@ -181,10 +189,13 @@ func resourcePostgreSQLSchemaCreate(d *schema.ResourceData, meta interface{}) er
 
 func resourcePostgreSQLSchemaDelete(d *schema.ResourceData, meta interface{}) error {
 	c := meta.(*Client)
+
+	database := d.Get(schemaDatabaseAttr).(string)
+
 	c.catalogLock.Lock()
 	defer c.catalogLock.Unlock()
 
-	txn, err := c.DB().Begin()
+	txn, err := startTransaction(c, database)
 	if err != nil {
 		return err
 	}
@@ -209,11 +220,20 @@ func resourcePostgreSQLSchemaDelete(d *schema.ResourceData, meta interface{}) er
 
 func resourcePostgreSQLSchemaExists(d *schema.ResourceData, meta interface{}) (bool, error) {
 	c := meta.(*Client)
+
+	database := d.Get(schemaDatabaseAttr).(string)
+
 	c.catalogLock.RLock()
 	defer c.catalogLock.RUnlock()
 
+	txn, err := startTransaction(c, database)
+	if err != nil {
+		return false, err
+	}
+	defer deferredRollback(txn)
+
 	var schemaName string
-	err := c.DB().QueryRow("SELECT n.nspname FROM pg_catalog.pg_namespace n WHERE n.nspname=$1", d.Id()).Scan(&schemaName)
+	err = txn.QueryRow("SELECT n.nspname FROM pg_catalog.pg_namespace n WHERE n.nspname=$1", d.Id()).Scan(&schemaName)
 	switch {
 	case err == sql.ErrNoRows:
 		return false, nil
@@ -235,10 +255,18 @@ func resourcePostgreSQLSchemaRead(d *schema.ResourceData, meta interface{}) erro
 func resourcePostgreSQLSchemaReadImpl(d *schema.ResourceData, meta interface{}) error {
 	c := meta.(*Client)
 
+	database := d.Get(schemaDatabaseAttr).(string)
+
+	txn, err := startTransaction(c, database)
+	if err != nil {
+		return err
+	}
+	defer deferredRollback(txn)
+
 	schemaId := d.Id()
 	var schemaName, schemaOwner string
 	var schemaACLs []string
-	err := c.DB().QueryRow("SELECT n.nspname, pg_catalog.pg_get_userbyid(n.nspowner), COALESCE(n.nspacl, '{}'::aclitem[])::TEXT[] FROM pg_catalog.pg_namespace n WHERE n.nspname=$1", schemaId).Scan(&schemaName, &schemaOwner, pq.Array(&schemaACLs))
+	err = txn.QueryRow("SELECT n.nspname, pg_catalog.pg_get_userbyid(n.nspowner), COALESCE(n.nspacl, '{}'::aclitem[])::TEXT[] FROM pg_catalog.pg_namespace n WHERE n.nspname=$1", schemaId).Scan(&schemaName, &schemaOwner, pq.Array(&schemaACLs))
 	switch {
 	case err == sql.ErrNoRows:
 		log.Printf("[WARN] PostgreSQL schema (%s) not found", schemaId)
@@ -279,10 +307,13 @@ func resourcePostgreSQLSchemaReadImpl(d *schema.ResourceData, meta interface{}) 
 
 func resourcePostgreSQLSchemaUpdate(d *schema.ResourceData, meta interface{}) error {
 	c := meta.(*Client)
+
+	database := d.Get(schemaDatabaseAttr).(string)
+
 	c.catalogLock.Lock()
 	defer c.catalogLock.Unlock()
 
-	txn, err := c.DB().Begin()
+	txn, err := startTransaction(c, database)
 	if err != nil {
 		return err
 	}
@@ -369,7 +400,7 @@ func setSchemaPolicy(txn *sql.Tx, d *schema.ResourceData) error {
 		// to prevent revoking against it not existing.
 		if rolePolicy.Role != "" {
 			var foundUser bool
-			err := txn.QueryRow(`SELECT TRUE FROM pg_catalog.pg_user WHERE usename = $1`, rolePolicy.Role).Scan(&foundUser)
+			err := txn.QueryRow(`SELECT TRUE FROM pg_catalog.pg_roles WHERE rolname = $1`, rolePolicy.Role).Scan(&foundUser)
 			switch {
 			case err == sql.ErrNoRows:
 				// Don't execute this role's REVOKEs because the role

@@ -48,7 +48,8 @@ func resourcePostgreSQLSchema() *schema.Resource {
 			},
 			schemaDatabaseAttr: {
 				Type:        schema.TypeString,
-				Required:    true,
+				Optional:    true,
+				Computed:    true,
 				Description: "The database name to alter schema",
 			},
 			schemaOwnerAttr: {
@@ -116,8 +117,24 @@ func resourcePostgreSQLSchemaCreate(d *schema.ResourceData, meta interface{}) er
 
 	queries := []string{}
 
+	database := getDatabase(d, c)
+
+	c.catalogLock.Lock()
+	defer c.catalogLock.Unlock()
+
+	txn, err := startTransaction(c, database)
+	if err != nil {
+		return err
+	}
+	defer deferredRollback(txn)
+
 	schemaName := d.Get(schemaNameAttr).(string)
-	{
+
+	// Check if previous tasks haven't already create schema
+	var foundSchema bool
+	err = txn.QueryRow(`SELECT TRUE FROM pg_catalog.pg_namespace WHERE nspname = $1`, schemaName).Scan(&foundSchema)
+
+	if err == sql.ErrNoRows {
 		b := bytes.NewBufferString("CREATE SCHEMA ")
 		if c.featureSupported(featureSchemaCreateIfNotExist) {
 			if v := d.Get(schemaIfNotExists); v.(bool) {
@@ -131,6 +148,10 @@ func resourcePostgreSQLSchemaCreate(d *schema.ResourceData, meta interface{}) er
 			fmt.Fprint(b, " AUTHORIZATION ", pq.QuoteIdentifier(v.(string)))
 		}
 		queries = append(queries, b.String())
+	} else {
+		if err := setSchemaOwner(txn, d); err != nil {
+			return err
+		}
 	}
 
 	// ACL objects that can generate the necessary SQL
@@ -161,17 +182,6 @@ func resourcePostgreSQLSchemaCreate(d *schema.ResourceData, meta interface{}) er
 		queries = append(queries, policy.Grants(schemaName)...)
 	}
 
-	database := d.Get(schemaDatabaseAttr).(string)
-
-	c.catalogLock.Lock()
-	defer c.catalogLock.Unlock()
-
-	txn, err := startTransaction(c, database)
-	if err != nil {
-		return err
-	}
-	defer deferredRollback(txn)
-
 	for _, query := range queries {
 		if _, err = txn.Exec(query); err != nil {
 			return errwrap.Wrapf(fmt.Sprintf("Error creating schema %s: {{err}}", schemaName), err)
@@ -190,7 +200,7 @@ func resourcePostgreSQLSchemaCreate(d *schema.ResourceData, meta interface{}) er
 func resourcePostgreSQLSchemaDelete(d *schema.ResourceData, meta interface{}) error {
 	c := meta.(*Client)
 
-	database := d.Get(schemaDatabaseAttr).(string)
+	database := getDatabase(d, c)
 
 	c.catalogLock.Lock()
 	defer c.catalogLock.Unlock()
@@ -221,7 +231,7 @@ func resourcePostgreSQLSchemaDelete(d *schema.ResourceData, meta interface{}) er
 func resourcePostgreSQLSchemaExists(d *schema.ResourceData, meta interface{}) (bool, error) {
 	c := meta.(*Client)
 
-	database := d.Get(schemaDatabaseAttr).(string)
+	database := getDatabase(d, c)
 
 	c.catalogLock.RLock()
 	defer c.catalogLock.RUnlock()
@@ -255,7 +265,7 @@ func resourcePostgreSQLSchemaRead(d *schema.ResourceData, meta interface{}) erro
 func resourcePostgreSQLSchemaReadImpl(d *schema.ResourceData, meta interface{}) error {
 	c := meta.(*Client)
 
-	database := d.Get(schemaDatabaseAttr).(string)
+	database := getDatabase(d, c)
 
 	txn, err := startTransaction(c, database)
 	if err != nil {
@@ -308,7 +318,7 @@ func resourcePostgreSQLSchemaReadImpl(d *schema.ResourceData, meta interface{}) 
 func resourcePostgreSQLSchemaUpdate(d *schema.ResourceData, meta interface{}) error {
 	c := meta.(*Client)
 
-	database := d.Get(schemaDatabaseAttr).(string)
+	database := getDatabase(d, c)
 
 	c.catalogLock.Lock()
 	defer c.catalogLock.Unlock()
@@ -364,14 +374,14 @@ func setSchemaOwner(txn *sql.Tx, d *schema.ResourceData) error {
 		return nil
 	}
 
-	oraw, nraw := d.GetChange(schemaOwnerAttr)
-	o := oraw.(string)
-	n := nraw.(string)
-	if n == "" {
+	schemaName := d.Get(schemaNameAttr).(string)
+	schemaOwner := d.Get(schemaOwnerAttr).(string)
+
+	if schemaOwner == "" {
 		return errors.New("Error setting schema owner to an empty string")
 	}
 
-	sql := fmt.Sprintf("ALTER SCHEMA %s OWNER TO %s", pq.QuoteIdentifier(o), pq.QuoteIdentifier(n))
+	sql := fmt.Sprintf("ALTER SCHEMA %s OWNER TO %s", pq.QuoteIdentifier(schemaName), pq.QuoteIdentifier(schemaOwner))
 	if _, err := txn.Exec(sql); err != nil {
 		return errwrap.Wrapf("Error updating schema OWNER: {{err}}", err)
 	}

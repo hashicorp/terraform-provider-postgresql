@@ -76,7 +76,7 @@ func resourcePostgreSQLRole() *schema.Resource {
 				Type:        schema.TypeList,
 				Optional:    true,
 				Elem:        &schema.Schema{Type: schema.TypeString},
-				MinItems:    1,
+				MinItems:    0,
 				Description: "Sets the role's search path",
 			},
 			roleEncryptedPassAttr: {
@@ -449,7 +449,7 @@ func resourcePostgreSQLRoleReadImpl(c *Client, d *schema.ResourceData) error {
 }
 
 // readSearchPath searches for a search_path entry in the rolconfig array.
-// In case no such value is present, it returns DEFAULT.
+// In case no such value is present, it returns nil.
 func readSearchPath(roleConfig pq.ByteaArray) []string {
 	for _, v := range roleConfig {
 		config := string(v)
@@ -457,7 +457,7 @@ func readSearchPath(roleConfig pq.ByteaArray) []string {
 			return strings.Split(strings.TrimPrefix(config, roleSearchPathAttr+"="), ", ")
 		}
 	}
-	return []string{"DEFAULT"}
+	return nil
 }
 
 // readRolePassword reads password either from Postgres if admin user is a superuser

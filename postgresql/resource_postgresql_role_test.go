@@ -108,13 +108,14 @@ resource "postgresql_role" "update_role" {
 					resource.TestCheckResourceAttr("postgresql_role.update_role", "password", "toto"),
 					resource.TestCheckResourceAttr("postgresql_role.update_role", "valid_until", "2099-05-04 12:00:00+00"),
 					resource.TestCheckResourceAttr("postgresql_role.update_role", "roles.#", "0"),
+					resource.TestCheckResourceAttr("postgresql_role.update_role", "search_path.#", "0"),
 					testAccCheckRoleCanLogin(t, "update_role", "toto"),
 				),
 			},
 			{
 				Config: configUpdate,
 				Check: resource.ComposeTestCheckFunc(
-					testAccCheckPostgresqlRoleExists("update_role2", []string{"group_role"}, []string{"mysearchpath"}),
+					testAccCheckPostgresqlRoleExists("update_role2", []string{"group_role"}, nil),
 					resource.TestCheckResourceAttr(
 						"postgresql_role.update_role", "name", "update_role2",
 					),
@@ -127,6 +128,8 @@ resource "postgresql_role" "update_role" {
 					resource.TestCheckResourceAttr(
 						"postgresql_role.update_role", "roles.2117325082", "group_role",
 					),
+					resource.TestCheckResourceAttr("postgresql_role.update_role", "search_path.#", "1"),
+					resource.TestCheckResourceAttr("postgresql_role.update_role", "search_path.0", "mysearchpath"),
 					testAccCheckRoleCanLogin(t, "update_role2", "titi"),
 				),
 			},
@@ -141,6 +144,7 @@ resource "postgresql_role" "update_role" {
 					resource.TestCheckResourceAttr("postgresql_role.update_role", "connection_limit", "-1"),
 					resource.TestCheckResourceAttr("postgresql_role.update_role", "password", "toto"),
 					resource.TestCheckResourceAttr("postgresql_role.update_role", "roles.#", "0"),
+					resource.TestCheckResourceAttr("postgresql_role.update_role", "search_path.#", "0"),
 					testAccCheckRoleCanLogin(t, "update_role", "toto"),
 				),
 			},

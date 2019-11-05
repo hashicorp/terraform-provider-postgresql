@@ -192,9 +192,9 @@ func resourcePostgreSQLSchemaCreate(d *schema.ResourceData, meta interface{}) er
 		return errwrap.Wrapf("Error committing schema: {{err}}", err)
 	}
 
-	d.SetId(schemaName)
+	d.SetId(generateSchemaID(d, c))
 
-	return resourcePostgreSQLSchemaReadImpl(d, meta)
+	return resourcePostgreSQLSchemaReadImpl(d, c)
 }
 
 func resourcePostgreSQLSchemaDelete(d *schema.ResourceData, meta interface{}) error {
@@ -231,10 +231,16 @@ func resourcePostgreSQLSchemaDelete(d *schema.ResourceData, meta interface{}) er
 func resourcePostgreSQLSchemaExists(d *schema.ResourceData, meta interface{}) (bool, error) {
 	c := meta.(*Client)
 
-	database := getDatabase(d, c)
-
 	c.catalogLock.RLock()
 	defer c.catalogLock.RUnlock()
+
+	database := getDatabase(d, c)
+
+	// Check if the database exists
+	exists, err := dbExists(c.DB(), database)
+	if err != nil || !exists {
+		return false, err
+	}
 
 	txn, err := startTransaction(c, database)
 	if err != nil {
@@ -243,7 +249,7 @@ func resourcePostgreSQLSchemaExists(d *schema.ResourceData, meta interface{}) (b
 	defer deferredRollback(txn)
 
 	var schemaName string
-	err = txn.QueryRow("SELECT n.nspname FROM pg_catalog.pg_namespace n WHERE n.nspname=$1", d.Id()).Scan(&schemaName)
+	err = txn.QueryRow("SELECT n.nspname FROM pg_catalog.pg_namespace n WHERE n.nspname=$1", d.Get(schemaNameAttr).(string)).Scan(&schemaName)
 	switch {
 	case err == sql.ErrNoRows:
 		return false, nil
@@ -259,12 +265,10 @@ func resourcePostgreSQLSchemaRead(d *schema.ResourceData, meta interface{}) erro
 	c.catalogLock.RLock()
 	defer c.catalogLock.RUnlock()
 
-	return resourcePostgreSQLSchemaReadImpl(d, meta)
+	return resourcePostgreSQLSchemaReadImpl(d, c)
 }
 
-func resourcePostgreSQLSchemaReadImpl(d *schema.ResourceData, meta interface{}) error {
-	c := meta.(*Client)
-
+func resourcePostgreSQLSchemaReadImpl(d *schema.ResourceData, c *Client) error {
 	database := getDatabase(d, c)
 
 	txn, err := startTransaction(c, database)
@@ -273,7 +277,7 @@ func resourcePostgreSQLSchemaReadImpl(d *schema.ResourceData, meta interface{}) 
 	}
 	defer deferredRollback(txn)
 
-	schemaId := d.Id()
+	schemaId := d.Get(schemaNameAttr).(string)
 	var schemaName, schemaOwner string
 	var schemaACLs []string
 	err = txn.QueryRow("SELECT n.nspname, pg_catalog.pg_get_userbyid(n.nspowner), COALESCE(n.nspacl, '{}'::aclitem[])::TEXT[] FROM pg_catalog.pg_namespace n WHERE n.nspname=$1", schemaId).Scan(&schemaName, &schemaOwner, pq.Array(&schemaACLs))
@@ -310,7 +314,9 @@ func resourcePostgreSQLSchemaReadImpl(d *schema.ResourceData, meta interface{}) 
 
 		d.Set(schemaNameAttr, schemaName)
 		d.Set(schemaOwnerAttr, schemaOwner)
-		d.SetId(schemaName)
+		d.Set(schemaDatabaseAttr, database)
+		d.SetId(generateSchemaID(d, c))
+
 		return nil
 	}
 }
@@ -329,7 +335,7 @@ func resourcePostgreSQLSchemaUpdate(d *schema.ResourceData, meta interface{}) er
 	}
 	defer deferredRollback(txn)
 
-	if err := setSchemaName(txn, d); err != nil {
+	if err := setSchemaName(txn, d, c); err != nil {
 		return err
 	}
 
@@ -345,10 +351,10 @@ func resourcePostgreSQLSchemaUpdate(d *schema.ResourceData, meta interface{}) er
 		return errwrap.Wrapf("Error committing schema: {{err}}", err)
 	}
 
-	return resourcePostgreSQLSchemaReadImpl(d, meta)
+	return resourcePostgreSQLSchemaReadImpl(d, c)
 }
 
-func setSchemaName(txn *sql.Tx, d *schema.ResourceData) error {
+func setSchemaName(txn *sql.Tx, d *schema.ResourceData, c *Client) error {
 	if !d.HasChange(schemaNameAttr) {
 		return nil
 	}
@@ -364,7 +370,7 @@ func setSchemaName(txn *sql.Tx, d *schema.ResourceData) error {
 	if _, err := txn.Exec(sql); err != nil {
 		return errwrap.Wrapf("Error updating schema NAME: {{err}}", err)
 	}
-	d.SetId(n)
+	d.SetId(generateSchemaID(d, c))
 
 	return nil
 }
@@ -550,4 +556,18 @@ func schemaPolicyToACL(policyMap map[string]interface{}) acl.Schema {
 	}
 
 	return rolePolicy
+}
+
+func generateSchemaID(d *schema.ResourceData, c *Client) string {
+	SchemaID := strings.Join([]string{
+		getDatabase(d, c),
+		d.Get(schemaNameAttr).(string),
+	}, ".")
+
+	return SchemaID
+}
+
+func getSchemaNameFromID(ID string) string {
+	splitted := strings.Split(ID, ".")
+	return splitted[0]
 }

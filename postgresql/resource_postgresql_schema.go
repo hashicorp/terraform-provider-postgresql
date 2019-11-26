@@ -234,7 +234,10 @@ func resourcePostgreSQLSchemaExists(d *schema.ResourceData, meta interface{}) (b
 	c.catalogLock.RLock()
 	defer c.catalogLock.RUnlock()
 
-	database := getDatabase(d, c)
+	database, schemaName, err := getDBSchemaName(d, c)
+	if err != nil {
+		return false, err
+	}
 
 	// Check if the database exists
 	exists, err := dbExists(c.DB(), database)
@@ -248,8 +251,7 @@ func resourcePostgreSQLSchemaExists(d *schema.ResourceData, meta interface{}) (b
 	}
 	defer deferredRollback(txn)
 
-	var schemaName string
-	err = txn.QueryRow("SELECT n.nspname FROM pg_catalog.pg_namespace n WHERE n.nspname=$1", d.Get(schemaNameAttr).(string)).Scan(&schemaName)
+	err = txn.QueryRow("SELECT n.nspname FROM pg_catalog.pg_namespace n WHERE n.nspname=$1", schemaName).Scan(&schemaName)
 	switch {
 	case err == sql.ErrNoRows:
 		return false, nil
@@ -269,7 +271,10 @@ func resourcePostgreSQLSchemaRead(d *schema.ResourceData, meta interface{}) erro
 }
 
 func resourcePostgreSQLSchemaReadImpl(d *schema.ResourceData, c *Client) error {
-	database := getDatabase(d, c)
+	database, schemaName, err := getDBSchemaName(d, c)
+	if err != nil {
+		return err
+	}
 
 	txn, err := startTransaction(c, database)
 	if err != nil {
@@ -277,13 +282,12 @@ func resourcePostgreSQLSchemaReadImpl(d *schema.ResourceData, c *Client) error {
 	}
 	defer deferredRollback(txn)
 
-	schemaId := d.Get(schemaNameAttr).(string)
-	var schemaName, schemaOwner string
+	var schemaOwner string
 	var schemaACLs []string
-	err = txn.QueryRow("SELECT n.nspname, pg_catalog.pg_get_userbyid(n.nspowner), COALESCE(n.nspacl, '{}'::aclitem[])::TEXT[] FROM pg_catalog.pg_namespace n WHERE n.nspname=$1", schemaId).Scan(&schemaName, &schemaOwner, pq.Array(&schemaACLs))
+	err = txn.QueryRow("SELECT pg_catalog.pg_get_userbyid(n.nspowner), COALESCE(n.nspacl, '{}'::aclitem[])::TEXT[] FROM pg_catalog.pg_namespace n WHERE n.nspname=$1", schemaName).Scan(&schemaOwner, pq.Array(&schemaACLs))
 	switch {
 	case err == sql.ErrNoRows:
-		log.Printf("[WARN] PostgreSQL schema (%s) not found", schemaId)
+		log.Printf("[WARN] PostgreSQL schema (%s) not found in database %s", schemaName, database)
 		d.SetId("")
 		return nil
 	case err != nil:
@@ -570,4 +574,20 @@ func generateSchemaID(d *schema.ResourceData, c *Client) string {
 func getSchemaNameFromID(ID string) string {
 	splitted := strings.Split(ID, ".")
 	return splitted[0]
+}
+
+func getDBSchemaName(d *schema.ResourceData, client *Client) (string, string, error) {
+	database := getDatabase(d, client)
+	schemaName := d.Get(schemaNameAttr).(string)
+
+	// When importing, we have to parse the ID to find schema and database names.
+	if schemaName == "" {
+		parsed := strings.Split(d.Id(), ".")
+		if len(parsed) != 2 {
+			return "", "", fmt.Errorf("schema ID %s has not the expected format 'database.schema': %v", d.Id(), parsed)
+		}
+		database = parsed[0]
+		schemaName = parsed[1]
+	}
+	return database, schemaName, nil
 }

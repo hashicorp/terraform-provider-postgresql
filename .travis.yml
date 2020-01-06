@@ -7,7 +7,9 @@ go:
   - "1.12.x"
 
 env:
+  globals:
   - GOFLAGS=-mod=vendor GO111MODULE=on
+  jobs:
   - PGVERSION=latest
   - PGVERSION=10
   - PGVERSION=9

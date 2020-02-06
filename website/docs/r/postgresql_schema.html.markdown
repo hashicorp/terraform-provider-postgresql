@@ -57,6 +57,7 @@ resource "postgresql_schema" "my_schema" {
 
 * `name` - (Required) The name of the schema. Must be unique in the PostgreSQL
   database instance where it is configured.
+* `database` - (Optional) The database to create the schema on. If not present, it will defaults to the provider database. 
 * `owner` - (Optional) The ROLE who owns the schema.
 * `if_not_exists` - (Optional) When true, use the existing schema if it exists. (Default: true)
 * `drop_cascade` - (Optional) When true, will also drop all the objects that are contained in the schema. (Default: false)

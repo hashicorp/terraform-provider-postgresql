@@ -73,6 +73,12 @@ var (
 	}
 )
 
+type ClientCertificateConfig struct {
+	CertificatePath string
+	KeyPath         string
+	RootKeyPath     string
+}
+
 // Config - provider config
 type Config struct {
 	Host              string
@@ -87,6 +93,7 @@ type Config struct {
 	ConnectTimeoutSec int
 	MaxConns          int
 	ExpectedVersion   semver.Version
+	SSLClientCert     *ClientCertificateConfig
 }
 
 // Client struct holding connection string
@@ -190,6 +197,14 @@ func (c *Config) connStr(database string) string {
 		if c.featureSupported(featureFallbackApplicationName) {
 			dsnFmtParts = append(dsnFmtParts, "fallback_application_name=%s")
 		}
+		if c.SSLClientCert != nil {
+			dsnFmtParts = append(
+				dsnFmtParts,
+				"sslcert=%s",
+				"sslkey=%s",
+				"sslrootcert=%s",
+			)
+		}
 
 		dsnFmt = strings.Join(dsnFmtParts, " ")
 	}
@@ -255,9 +270,18 @@ func (c *Config) connStr(database string) string {
 		if c.featureSupported(featureFallbackApplicationName) {
 			connValues = append(connValues, quote(c.ApplicationName))
 		}
+		if c.SSLClientCert != nil {
+			connValues = append(
+				connValues,
+				quote(c.SSLClientCert.CertificatePath),
+				quote(c.SSLClientCert.KeyPath),
+				quote(c.SSLClientCert.RootKeyPath),
+			)
+		}
 		connStr = fmt.Sprintf(dsnFmt, connValues...)
 	}
 
+	fmt.Printf("connection string: `%s`", connStr)
 	return connStr
 }
 

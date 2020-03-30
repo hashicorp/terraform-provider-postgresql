@@ -251,6 +251,14 @@ func (c *Config) connStr(database string) string {
 		if c.featureSupported(featureFallbackApplicationName) {
 			logValues = append(logValues, quote(c.ApplicationName))
 		}
+		if c.SSLClientCert != nil {
+			logValues = append(
+				logValues,
+				quote(c.SSLClientCert.CertificatePath),
+				quote(c.SSLClientCert.KeyPath),
+				quote(c.SSLClientCert.RootKeyPath),
+			)
+		}
 
 		logDSN := fmt.Sprintf(dsnFmt, logValues...)
 		log.Printf("[INFO] PostgreSQL DSN: `%s`", logDSN)

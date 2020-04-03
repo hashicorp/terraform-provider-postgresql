@@ -157,6 +157,192 @@ resource "postgresql_role" "update_role" {
 	})
 }
 
+func TestAccPostgresqlRole_Delete(t *testing.T) {
+	// This test tests dropping a role on and rds and non rds server
+	dbSuffix, teardown := setupTestDatabase(t, true, true)
+	defer teardown()
+
+	var resourceConfig = `
+		resource "postgresql_role" "bobbyropables" {
+		  name = "bobbyropables"
+		}
+	`
+	// Since we are mocking the isRdsServer function, if we do not reset the mock it could affect later tests
+	// Capture the original function definition
+	originalIsRdsServer := isRdsServer
+
+	// Mock the isRdsServer function to always return true
+	isRdsServer = func(c *Client) (bool, error) {
+		return true, nil
+	}
+
+	// Test creating a user and then dropping that user in an rds
+	resource.Test(t, resource.TestCase{
+		PreCheck: func() {
+			testAccPreCheck(t)
+			testCheckCompatibleVersion(t, featurePrivileges)
+		},
+		Providers:    testAccProviders,
+		CheckDestroy: testAccCheckPostgresqlRoleDestroy,
+		Steps: []resource.TestStep{
+			{
+				Config: resourceConfig,
+				Check: resource.ComposeTestCheckFunc(
+					func(*terraform.State) error {
+						// Create a table with the new user
+						tables := []string{"public.test_table"}
+						dropFunc := createTestTables(t, dbSuffix, tables, "bobbyropables")
+						defer dropFunc()
+
+						return nil
+					}),
+			},
+			{
+				Config:  resourceConfig,
+				// The destroy step would throw an exception if there were an issue
+				Destroy: true,
+				// Verify the user was deleted
+				Check:   testAccCheckPostgresqlRoleDeleted("bobbyropables"),
+			},
+		},
+	})
+
+	// Default mock to always return false for isRdsServer
+	isRdsServer = func(c *Client) (bool, error) {
+		return false, nil
+	}
+	resource.Test(t, resource.TestCase{
+		PreCheck: func() {
+			testAccPreCheck(t)
+			testCheckCompatibleVersion(t, featurePrivileges)
+		},
+		Providers:    testAccProviders,
+		CheckDestroy: testAccCheckPostgresqlRoleDestroy,
+		Steps: []resource.TestStep{
+			{
+				Config: resourceConfig,
+				Check: resource.ComposeTestCheckFunc(
+					func(*terraform.State) error {
+						// Create a table with the new user
+						tables := []string{"public.test_table"}
+						dropFunc := createTestTables(t, dbSuffix, tables, "bobbyropables")
+						defer dropFunc()
+
+						return nil
+					}),
+			},
+			{
+				Config:  resourceConfig,
+				// The destroy step would throw an exception if there were an issue
+				Destroy: true,
+				// Verify the user was deleted
+				Check:   testAccCheckPostgresqlRoleDeleted("bobbyropables"),
+			},
+		},
+	})
+	// Reset the isRdsServer function to the original definition
+	isRdsServer = originalIsRdsServer
+}
+
+func TestAccIsRds_Basic(t *testing.T) {
+	// Test the isRdsServer function
+	// Note: This changes an internal view pg_catalog.pg_settings to mock and thus requires resetting the definition
+	// to not affect later tests
+	resource.Test(t, resource.TestCase{
+		Providers:    testAccProviders,
+		CheckDestroy: testAccCheckPostgresqlRoleDestroy,
+		Steps: []resource.TestStep{
+			{
+				Config: `
+				resource postgresql_database test_db {
+					name = "test_db"
+				}
+				`,
+				Check: resource.ComposeTestCheckFunc(
+					testAccIsRdsServer(true),
+					testAccIsRdsServer(false),
+				),
+			},
+		},
+	})
+}
+
+func testAccIsRdsServer(toRds bool) resource.TestCheckFunc {
+	return func(s *terraform.State) error {
+		var originalPgSettings string
+		client := testAccProvider.Meta().(*Client)
+		db := client.DB()
+
+		// If we are mocking this as an rds server then:
+		if toRds {
+			// Capture the original definition of pg_settings
+			if err := db.QueryRow("select view_definition from information_schema.views where table_name = 'pg_settings';").Scan(&originalPgSettings); err != nil {
+				return fmt.Errorf("could not capture pg_settings definition: %s", err)
+			}
+			createOrReplace := "CREATE or REPLACE view pg_catalog.pg_settings(name, setting, unit, category, short_desc, extra_desc, context, vartype, source, min_val, max_val, enumvals, boot_val, reset_val, sourcefile, sourceline, pending_restart) as"
+			originalPgSettings = fmt.Sprintf("%s\n%s", createOrReplace, originalPgSettings)
+			// Alter pg_settings to return a setting with the name `rds.extensions`
+			mockedPgSettings := `
+				CREATE or REPLACE view pg_catalog.pg_settings(name, setting, unit, category, short_desc, extra_desc, context, vartype, source, min_val, max_val, enumvals, boot_val, reset_val, sourcefile, sourceline, pending_restart) as
+				SELECT
+					'rds.extensions' as name,
+					a.setting,
+					a.unit,
+					a.category,
+					a.short_desc,
+					a.extra_desc,
+					a.context,
+					a.vartype,
+					a.source,
+					a.min_val,
+					a.max_val,
+					a.enumvals,
+					a.boot_val,
+					a.reset_val,
+					a.sourcefile,
+					a.sourceline,
+					a.pending_restart
+				   FROM pg_show_all_settings() a(name, setting, unit, category, short_desc, extra_desc, context, vartype, source, min_val, max_val, enumvals, boot_val, reset_val, sourcefile, sourceline, pending_restart)
+				   LIMIT 1
+				`
+			if _, err := db.Exec(mockedPgSettings); err != nil {
+				return fmt.Errorf("could not alter pg_settings: %s", err)
+			}
+		}
+
+		isRds, _ := isRdsServer(client)
+
+		if toRds {
+			// reset pg_settings to original definition
+			if _, resetErr := db.Exec(originalPgSettings); resetErr != nil {
+				return fmt.Errorf("could not alter pg_settings: %s", resetErr)
+			}
+		}
+		if isRds != toRds {
+			return fmt.Errorf("isRedisServer should have returned: %t", toRds)
+		}
+		return nil
+	}
+}
+
+func testAccCheckPostgresqlRoleDeleted(roleName string) resource.TestCheckFunc {
+	return func(s *terraform.State) error {
+		client := testAccProvider.Meta().(*Client)
+
+		exists, err := checkRoleExists(client, roleName)
+		if err != nil {
+			return fmt.Errorf("error checking role %s", err)
+		}
+
+		if exists {
+			return fmt.Errorf("role not deleted")
+		}
+
+		return nil
+	}
+
+}
+
 func testAccCheckPostgresqlRoleDestroy(s *terraform.State) error {
 	client := testAccProvider.Meta().(*Client)
 

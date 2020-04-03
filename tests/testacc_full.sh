@@ -18,7 +18,7 @@ run() {
   
   # for a single test comment the previous line and uncomment the next line
   #TF_LOG=INFO TF_ACC=1 go test -v ./postgresql -run ^TestAccPostgresqlRole_Basic$ -timeout 360s
-  
+
   # keep the return value for the scripts to fail and clean properly
   return $?
 }

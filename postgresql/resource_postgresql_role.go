@@ -39,6 +39,19 @@ const (
 	roleDepEncryptedAttr = "encrypted"
 )
 
+// isRdsServer returns true if the postgres server is an rds instance
+// This is declared as a var so that it can easily be mocked
+var isRdsServer = func(c *Client) (bool, error) {
+	var isrds bool
+
+	// Standard postgres servers do not have settings with the `rds.` prefix
+	if err := c.db.QueryRow("select exists(select 1 from pg_settings where name ~ '^rds.*$');").Scan(&isrds); err != nil {
+		return false, errwrap.Wrapf("could not check if this is an rds server: {{err}}", err)
+	}
+
+	return isrds, nil
+}
+
 func resourcePostgreSQLRole() *schema.Resource {
 	return &schema.Resource{
 		Create: resourcePostgreSQLRoleCreate,
@@ -319,12 +332,28 @@ func resourcePostgreSQLRoleDelete(d *schema.ResourceData, meta interface{}) erro
 
 	queries := make([]string, 0, 3)
 	if !d.Get(roleSkipReassignOwnedAttr).(bool) {
+		// rds postgres servers do not allow reassigning ownership for roles without taking on that role first
+		// since this work is wrapped in a transaction we can do the set role and then set it back to the pq user
+		// NOTE: This is done as separate rds functionality because in standard postgres a user must have explicit
+		// `reassign objects` permission to avoid `ERROR:  permission denied to reassign objects` in this scenario
+		var isRds bool
+		isRds, _ = isRdsServer(c)
+		if isRds {
+			queries = append(queries, fmt.Sprintf("SET ROLE %s", pq.QuoteIdentifier(roleName)))
+		}
+
 		if c.featureSupported(featureReassignOwnedCurrentUser) {
 			queries = append(queries, fmt.Sprintf("REASSIGN OWNED BY %s TO CURRENT_USER", pq.QuoteIdentifier(roleName)))
 		} else {
 			queries = append(queries, fmt.Sprintf("REASSIGN OWNED BY %s TO %s", pq.QuoteIdentifier(roleName), pq.QuoteIdentifier(c.config.getDatabaseUsername())))
 		}
+
 		queries = append(queries, fmt.Sprintf("DROP OWNED BY %s", pq.QuoteIdentifier(roleName)))
+		if isRds {
+			// The role must be set back to the pq role in order to perform drops without users requiring explicit
+			// drop permissions
+			queries = append(queries, fmt.Sprintf("SET ROLE %s", pq.QuoteIdentifier(c.config.getDatabaseUsername())))
+		}
 	}
 
 	if !d.Get(roleSkipDropRoleAttr).(bool) {

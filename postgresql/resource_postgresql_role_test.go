@@ -158,6 +158,8 @@ resource "postgresql_role" "update_role" {
 }
 
 func TestAccPostgresqlRole_Delete(t *testing.T) {
+	skipIfNotAcc(t)
+
 	// This test tests dropping a role on and rds and non rds server
 	dbSuffix, teardown := setupTestDatabase(t, true, true)
 	defer teardown()

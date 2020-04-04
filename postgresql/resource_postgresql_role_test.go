@@ -198,11 +198,11 @@ func TestAccPostgresqlRole_Delete(t *testing.T) {
 					}),
 			},
 			{
-				Config:  resourceConfig,
+				Config: resourceConfig,
 				// The destroy step would throw an exception if there were an issue
 				Destroy: true,
 				// Verify the user was deleted
-				Check:   testAccCheckPostgresqlRoleDeleted("bobbyropables"),
+				Check: testAccCheckPostgresqlRoleDeleted("bobbyropables"),
 			},
 		},
 	})
@@ -232,11 +232,11 @@ func TestAccPostgresqlRole_Delete(t *testing.T) {
 					}),
 			},
 			{
-				Config:  resourceConfig,
+				Config: resourceConfig,
 				// The destroy step would throw an exception if there were an issue
 				Destroy: true,
 				// Verify the user was deleted
-				Check:   testAccCheckPostgresqlRoleDeleted("bobbyropables"),
+				Check: testAccCheckPostgresqlRoleDeleted("bobbyropables"),
 			},
 		},
 	})

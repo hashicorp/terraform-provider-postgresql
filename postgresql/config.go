@@ -289,7 +289,6 @@ func (c *Config) connStr(database string) string {
 		connStr = fmt.Sprintf(dsnFmt, connValues...)
 	}
 
-	fmt.Printf("connection string: `%s`", connStr)
 	return connStr
 }
 

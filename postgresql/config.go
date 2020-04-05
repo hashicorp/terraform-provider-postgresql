@@ -76,7 +76,6 @@ var (
 type ClientCertificateConfig struct {
 	CertificatePath string
 	KeyPath         string
-	RootKeyPath     string
 }
 
 // Config - provider config
@@ -94,6 +93,7 @@ type Config struct {
 	MaxConns          int
 	ExpectedVersion   semver.Version
 	SSLClientCert     *ClientCertificateConfig
+	SSLRootCertPath   string
 }
 
 // Client struct holding connection string
@@ -202,8 +202,10 @@ func (c *Config) connStr(database string) string {
 				dsnFmtParts,
 				"sslcert=%s",
 				"sslkey=%s",
-				"sslrootcert=%s",
 			)
+		}
+		if c.SSLRootCertPath != "" {
+			dsnFmtParts = append(dsnFmtParts, "sslrootcert=%s")
 		}
 
 		dsnFmt = strings.Join(dsnFmtParts, " ")
@@ -256,8 +258,10 @@ func (c *Config) connStr(database string) string {
 				logValues,
 				quote(c.SSLClientCert.CertificatePath),
 				quote(c.SSLClientCert.KeyPath),
-				quote(c.SSLClientCert.RootKeyPath),
 			)
+		}
+		if c.SSLRootCertPath != "" {
+			logValues = append(logValues, quote(c.SSLRootCertPath))
 		}
 
 		logDSN := fmt.Sprintf(dsnFmt, logValues...)
@@ -283,9 +287,12 @@ func (c *Config) connStr(database string) string {
 				connValues,
 				quote(c.SSLClientCert.CertificatePath),
 				quote(c.SSLClientCert.KeyPath),
-				quote(c.SSLClientCert.RootKeyPath),
 			)
 		}
+		if c.SSLRootCertPath != "" {
+			connValues = append(connValues, quote(c.SSLRootCertPath))
+		}
+
 		connStr = fmt.Sprintf(dsnFmt, connValues...)
 	}
 

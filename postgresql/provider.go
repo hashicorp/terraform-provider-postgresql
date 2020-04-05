@@ -92,14 +92,14 @@ func Provider() terraform.ResourceProvider {
 							Description: "The SSL client certificate private key file path. The file must contain PEM encoded data.",
 							Required:    true,
 						},
-						"rootcert": {
-							Type:        schema.TypeString,
-							Description: "The SSL server root certificate file path. The file must contain PEM encoded data.",
-							Required:    true,
-						},
 					},
 				},
 				MaxItems: 1,
+			},
+			"sslrootcert": {
+				Type:        schema.TypeString,
+				Description: "The SSL server root certificate file path. The file must contain PEM encoded data.",
+				Optional:    true,
 			},
 
 			"connect_timeout": {
@@ -186,6 +186,7 @@ func providerConfigure(d *schema.ResourceData) (interface{}, error) {
 		ConnectTimeoutSec: d.Get("connect_timeout").(int),
 		MaxConns:          d.Get("max_connections").(int),
 		ExpectedVersion:   version,
+		SSLRootCertPath:   d.Get("sslrootcert").(string),
 	}
 
 	if value, ok := d.GetOk("clientcert"); ok {
@@ -193,7 +194,6 @@ func providerConfigure(d *schema.ResourceData) (interface{}, error) {
 			config.SSLClientCert = &ClientCertificateConfig{
 				CertificatePath: spec["cert"].(string),
 				KeyPath:         spec["key"].(string),
-				RootKeyPath:     spec["rootcert"].(string),
 			}
 		}
 	}

@@ -116,6 +116,8 @@ resource "postgresql_role" "my_replication_role" {
 
 * `statement_timeout` - (Optional) Defines [`statement_timeout`](https://www.postgresql.org/docs/current/runtime-config-client.html#RUNTIME-CONFIG-CLIENT-STATEMENT) setting for this role which allows to abort any statement that takes more than the specified amount of time.
 
+* `log_statement` - (Optional) Defines [`log_statement`](https://www.postgresql.org/docs/current/runtime-config-logging.html) setting for this role which controls the type of SQL statements that are logged. Default is `none`
+
 ## Import Example
 
 `postgresql_role` supports importing resources.  Supposing the following

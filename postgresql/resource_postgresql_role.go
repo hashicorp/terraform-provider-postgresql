@@ -24,6 +24,7 @@ const (
 	roleEncryptedPassAttr     = "encrypted_password"
 	roleInheritAttr           = "inherit"
 	roleLoginAttr             = "login"
+	roleLogStatementAttr      = "log_statement"
 	roleNameAttr              = "name"
 	rolePasswordAttr          = "password"
 	roleReplicationAttr       = "replication"
@@ -38,6 +39,13 @@ const (
 	// Deprecated options
 	roleDepEncryptedAttr = "encrypted"
 )
+
+var allowedLogStatementOpts = []string{
+	"none",
+	"ddl",
+	"mod",
+	"all",
+}
 
 func resourcePostgreSQLRole() *schema.Resource {
 	return &schema.Resource{
@@ -130,6 +138,13 @@ func resourcePostgreSQLRole() *schema.Resource {
 				Optional:    true,
 				Default:     false,
 				Description: "Determine whether a role is allowed to log in",
+			},
+			roleLogStatementAttr: {
+				Type:         schema.TypeString,
+				Optional:     true,
+				Default:      "none",
+				ValidateFunc: validation.StringInSlice(allowedLogStatementOpts, false),
+				Description:  "Sets the log level for SQL statements",
 			},
 			roleReplicationAttr: {
 				Type:        schema.TypeBool,
@@ -784,6 +799,22 @@ func setRoleLogin(txn *sql.Tx, d *schema.ResourceData) error {
 	sql := fmt.Sprintf("ALTER ROLE %s WITH %s", pq.QuoteIdentifier(roleName), tok)
 	if _, err := txn.Exec(sql); err != nil {
 		return errwrap.Wrapf("Error updating role LOGIN: {{err}}", err)
+	}
+
+	return nil
+}
+
+func setRoleLogStatement(txn *sql.Tx, d *schema.ResourceData) error {
+	if !d.HasChange(roleLogStatementAttr) {
+		return nil
+	}
+
+	level := d.Get(roleLogStatementAttr).(string)
+
+	roleName := d.Get(roleNameAttr).(string)
+	sql := fmt.Sprintf("ALTER ROLE %s SET log_statement TO %s", pq.QuoteIdentifier(roleName), level)
+	if _, err := txn.Exec(sql); err != nil {
+		return errwrap.Wrapf("Error updating role log_statement: {{err}}", err)
 	}
 
 	return nil

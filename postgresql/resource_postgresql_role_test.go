@@ -91,6 +91,7 @@ resource "postgresql_role" "update_role" {
   roles = ["${postgresql_role.group_role.name}"]
   search_path = ["mysearchpath"]
   statement_timeout = 30000
+  log_statement = "all"
 }
 `
 	resource.Test(t, resource.TestCase{
@@ -113,6 +114,7 @@ resource "postgresql_role" "update_role" {
 					resource.TestCheckResourceAttr("postgresql_role.update_role", "roles.#", "0"),
 					resource.TestCheckResourceAttr("postgresql_role.update_role", "search_path.#", "0"),
 					resource.TestCheckResourceAttr("postgresql_role.update_role", "statement_timeout", "0"),
+					resource.TestCheckResourceAttr("postgresql_role.update_role", "log_statement", "none"),
 					testAccCheckRoleCanLogin(t, "update_role", "toto"),
 				),
 			},
@@ -135,6 +137,7 @@ resource "postgresql_role" "update_role" {
 					resource.TestCheckResourceAttr("postgresql_role.update_role", "search_path.#", "1"),
 					resource.TestCheckResourceAttr("postgresql_role.update_role", "search_path.0", "mysearchpath"),
 					resource.TestCheckResourceAttr("postgresql_role.update_role", "statement_timeout", "30000"),
+					resource.TestCheckResourceAttr("postgresql_role.update_role", "log_statement", "all"),
 					testAccCheckRoleCanLogin(t, "update_role2", "titi"),
 				),
 			},
@@ -151,6 +154,7 @@ resource "postgresql_role" "update_role" {
 					resource.TestCheckResourceAttr("postgresql_role.update_role", "roles.#", "0"),
 					resource.TestCheckResourceAttr("postgresql_role.update_role", "search_path.#", "0"),
 					resource.TestCheckResourceAttr("postgresql_role.update_role", "statement_timeout", "0"),
+					resource.TestCheckResourceAttr("postgresql_role.update_role", "log_statement", "none"),
 					testAccCheckRoleCanLogin(t, "update_role", "toto"),
 				),
 			},

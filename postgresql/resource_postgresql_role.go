@@ -310,6 +310,10 @@ func resourcePostgreSQLRoleCreate(d *schema.ResourceData, meta interface{}) erro
 		return err
 	}
 
+	if err = setRoleLogStatement(txn, d); err != nil {
+		return err
+	}
+
 	if err = txn.Commit(); err != nil {
 		return errwrap.Wrapf("could not commit transaction: {{err}}", err)
 	}
@@ -464,6 +468,7 @@ func resourcePostgreSQLRoleReadImpl(c *Client, d *schema.ResourceData) error {
 	d.Set(roleReplicationAttr, roleBypassRLS)
 	d.Set(roleRolesAttr, pgArrayToSet(roleRoles))
 	d.Set(roleSearchPathAttr, readSearchPath(roleConfig))
+	d.Set(roleLogStatementAttr, readLogStatement(roleConfig, d.Get(roleLogStatementAttr).(string)))
 
 	statementTimeout, err := readStatementTimeout(roleConfig)
 	if err != nil {
@@ -494,6 +499,19 @@ func readSearchPath(roleConfig pq.ByteaArray) []string {
 		}
 	}
 	return nil
+}
+
+// readLogStatement searches for a log_statement entry in the rolconfig array.
+// In case no such value is present, it returns empty.
+func readLogStatement(roleConfig pq.ByteaArray, defaultValue string) string {
+	for _, v := range roleConfig {
+		config := string(v)
+		if strings.HasPrefix(config, roleLogStatementAttr) {
+			var result = strings.TrimPrefix(config, roleLogStatementAttr+"=")
+			return result
+		}
+	}
+	return defaultValue
 }
 
 // readStatementTimeout searches for a statement_timeout entry in the rolconfig array.
@@ -612,6 +630,10 @@ func resourcePostgreSQLRoleUpdate(d *schema.ResourceData, meta interface{}) erro
 	}
 
 	if err := setRoleLogin(txn, d); err != nil {
+		return err
+	}
+
+	if err := setRoleLogStatement(txn, d); err != nil {
 		return err
 	}
 
@@ -812,7 +834,7 @@ func setRoleLogStatement(txn *sql.Tx, d *schema.ResourceData) error {
 	level := d.Get(roleLogStatementAttr).(string)
 
 	roleName := d.Get(roleNameAttr).(string)
-	sql := fmt.Sprintf("ALTER ROLE %s SET log_statement TO %s", pq.QuoteIdentifier(roleName), level)
+	sql := fmt.Sprintf("ALTER ROLE %s SET log_statement TO %s", pq.QuoteIdentifier(roleName), pq.QuoteIdentifier(level))
 	if _, err := txn.Exec(sql); err != nil {
 		return errwrap.Wrapf("Error updating role log_statement: {{err}}", err)
 	}

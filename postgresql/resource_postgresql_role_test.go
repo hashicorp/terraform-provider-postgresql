@@ -207,6 +207,68 @@ func testAccCheckPostgresqlRoleExists(roleName string, grantedRoles []string, se
 	}
 }
 
+func TestAccPostgresqlRole_Delete(t *testing.T) {
+	skipIfNotAcc(t)
+
+	// This test tests dropping a role on and rds and non rds server
+	dbSuffix, teardown := setupTestDatabase(t, true, true)
+	defer teardown()
+
+	var resourceConfig = `
+		resource "postgresql_role" "bobbyropables" {
+		  name = "bobbyropables"
+		}
+	`
+
+	resource.Test(t, resource.TestCase{
+		PreCheck: func() {
+			testAccPreCheck(t)
+			testCheckCompatibleVersion(t, featurePrivileges)
+		},
+		Providers:    testAccProviders,
+		CheckDestroy: testAccCheckPostgresqlRoleDestroy,
+		Steps: []resource.TestStep{
+			{
+				Config: resourceConfig,
+				Check: resource.ComposeTestCheckFunc(
+					func(*terraform.State) error {
+						// Create a table with the new user
+						tables := []string{"public.test_table"}
+						dropFunc := createTestTables(t, dbSuffix, tables, "bobbyropables")
+						defer dropFunc()
+
+						return nil
+					}),
+			},
+			{
+				Config: resourceConfig,
+				// The destroy step would throw an exception if there were an issue
+				Destroy: true,
+				// Verify the user was deleted
+				Check: testAccCheckPostgresqlRoleDeleted("bobbyropables"),
+			},
+		},
+	})
+}
+
+func testAccCheckPostgresqlRoleDeleted(roleName string) resource.TestCheckFunc {
+	return func(s *terraform.State) error {
+		client := testAccProvider.Meta().(*Client)
+
+		exists, err := checkRoleExists(client, roleName)
+		if err != nil {
+			return fmt.Errorf("error checking role %s", err)
+		}
+
+		if exists {
+			return fmt.Errorf("role not deleted")
+		}
+
+		return nil
+	}
+
+}
+
 func checkRoleExists(client *Client, roleName string) (bool, error) {
 	var _rez int
 	err := client.DB().QueryRow("SELECT 1 from pg_roles d WHERE rolname=$1", roleName).Scan(&_rez)

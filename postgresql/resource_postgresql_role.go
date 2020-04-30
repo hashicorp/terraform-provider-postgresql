@@ -6,14 +6,13 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"log"
-	"strconv"
-	"strings"
-
 	"github.com/hashicorp/errwrap"
 	"github.com/hashicorp/terraform-plugin-sdk/helper/schema"
 	"github.com/hashicorp/terraform-plugin-sdk/helper/validation"
 	"github.com/lib/pq"
+	"log"
+	"strconv"
+	"strings"
 )
 
 const (
@@ -306,6 +305,29 @@ func resourcePostgreSQLRoleCreate(d *schema.ResourceData, meta interface{}) erro
 
 func resourcePostgreSQLRoleDelete(d *schema.ResourceData, meta interface{}) error {
 	c := meta.(*Client)
+
+	roleName := d.Get(roleNameAttr).(string)
+	roleSkipReassignOwnedAttr := d.Get(roleSkipReassignOwnedAttr).(bool)
+	featureReassignOwnedCurrentUser := c.featureSupported(featureReassignOwnedCurrentUser)
+	roleSkipDropRoleAttr := d.Get(roleSkipDropRoleAttr).(bool)
+	databaseUsername := c.config.getDatabaseUsername()
+
+	queries := resourcePostgreSQLRoleDeleteGenerateSQL(roleName, roleSkipReassignOwnedAttr, featureReassignOwnedCurrentUser, roleSkipDropRoleAttr, false, databaseUsername)
+
+	err := resourcePostgreSQLRoleDeleteCommitSQL(d, meta, queries)
+	if err != nil {
+		if nerr := err.(pq.Error); nerr.Code.Name() == "insufficient_privilege" {
+			queries := resourcePostgreSQLRoleDeleteGenerateSQL(roleName, roleSkipReassignOwnedAttr, featureReassignOwnedCurrentUser, roleSkipDropRoleAttr, true, databaseUsername)
+			err = resourcePostgreSQLRoleDeleteCommitSQL(d, meta, queries)
+		}
+		return errwrap.Wrapf("Error deleting role: {{err}}", err)
+	}
+
+	return nil
+}
+
+func resourcePostgreSQLRoleDeleteCommitSQL(d *schema.ResourceData, meta interface{}, queries []string) error {
+	c := meta.(*Client)
 	c.catalogLock.Lock()
 	defer c.catalogLock.Unlock()
 
@@ -314,22 +336,6 @@ func resourcePostgreSQLRoleDelete(d *schema.ResourceData, meta interface{}) erro
 		return err
 	}
 	defer deferredRollback(txn)
-
-	roleName := d.Get(roleNameAttr).(string)
-
-	queries := make([]string, 0, 3)
-	if !d.Get(roleSkipReassignOwnedAttr).(bool) {
-		if c.featureSupported(featureReassignOwnedCurrentUser) {
-			queries = append(queries, fmt.Sprintf("REASSIGN OWNED BY %s TO CURRENT_USER", pq.QuoteIdentifier(roleName)))
-		} else {
-			queries = append(queries, fmt.Sprintf("REASSIGN OWNED BY %s TO %s", pq.QuoteIdentifier(roleName), pq.QuoteIdentifier(c.config.getDatabaseUsername())))
-		}
-		queries = append(queries, fmt.Sprintf("DROP OWNED BY %s", pq.QuoteIdentifier(roleName)))
-	}
-
-	if !d.Get(roleSkipDropRoleAttr).(bool) {
-		queries = append(queries, fmt.Sprintf("DROP ROLE %s", pq.QuoteIdentifier(roleName)))
-	}
 
 	if len(queries) > 0 {
 		for _, query := range queries {
@@ -346,6 +352,36 @@ func resourcePostgreSQLRoleDelete(d *schema.ResourceData, meta interface{}) erro
 	d.SetId("")
 
 	return nil
+}
+
+func resourcePostgreSQLRoleDeleteGenerateSQL(roleName string, roleSkipReassignOwnedAttr bool, featureReassignOwnedCurrentUser bool, roleSkipDropRoleAttr bool, assumeRole bool, databaseUsername string) []string {
+	queries := make([]string, 0, 3)
+
+	if !roleSkipReassignOwnedAttr {
+		if assumeRole {
+			// rds postgres servers do not allow reassigning ownership for roles without taking on that role first
+			// since this work is wrapped in a transaction we can do the set role and then set it back to the pq user
+			queries = append(queries, fmt.Sprintf("SET ROLE %s", pq.QuoteIdentifier(roleName)))
+		}
+
+		if featureReassignOwnedCurrentUser {
+			queries = append(queries, fmt.Sprintf("REASSIGN OWNED BY %s TO CURRENT_USER", pq.QuoteIdentifier(roleName)))
+		} else {
+			queries = append(queries, fmt.Sprintf("REASSIGN OWNED BY %s TO %s", pq.QuoteIdentifier(roleName), pq.QuoteIdentifier(databaseUsername)))
+		}
+		queries = append(queries, fmt.Sprintf("DROP OWNED BY %s", pq.QuoteIdentifier(roleName)))
+		if assumeRole {
+			// The role must be set back to the pq role in order to perform drops without users requiring explicit
+			// drop permissions
+			queries = append(queries, fmt.Sprintf("SET ROLE %s", pq.QuoteIdentifier(databaseUsername)))
+		}
+	}
+
+	if !roleSkipDropRoleAttr {
+		queries = append(queries, fmt.Sprintf("DROP ROLE %s", pq.QuoteIdentifier(roleName)))
+	}
+
+	return queries
 }
 
 func resourcePostgreSQLRoleExists(d *schema.ResourceData, meta interface{}) (bool, error) {

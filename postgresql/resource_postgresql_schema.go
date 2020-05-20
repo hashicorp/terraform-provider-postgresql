@@ -136,6 +136,7 @@ func resourcePostgreSQLSchemaCreate(d *schema.ResourceData, meta interface{}) er
 	defer deferredRollback(txn)
 
 	schemaName := d.Get(schemaNameAttr).(string)
+	schemaOwner := d.Get(schemaOwnerAttr).(string)
 
 	// Check if previous tasks haven't already create schema
 	var foundSchema bool
@@ -150,9 +151,8 @@ func resourcePostgreSQLSchemaCreate(d *schema.ResourceData, meta interface{}) er
 		}
 		fmt.Fprint(b, pq.QuoteIdentifier(schemaName))
 
-		switch v, ok := d.GetOk(schemaOwnerAttr); {
-		case ok:
-			fmt.Fprint(b, " AUTHORIZATION ", pq.QuoteIdentifier(v.(string)))
+		if schemaOwner != "" {
+			fmt.Fprint(b, " AUTHORIZATION ", pq.QuoteIdentifier(schemaOwner))
 		}
 		queries = append(queries, b.String())
 	} else {
@@ -189,9 +189,28 @@ func resourcePostgreSQLSchemaCreate(d *schema.ResourceData, meta interface{}) er
 		queries = append(queries, policy.Grants(schemaName)...)
 	}
 
+	// Needed in order to set the owner of the schema if the connection user is not a
+	// superuser
+	currentUser := c.config.getDatabaseUsername()
+	ownerGranted := false
+	if schemaOwner != "" {
+		ownerGranted, err = grantRoleMembership(txn, schemaOwner, currentUser)
+		if err != nil {
+			return errwrap.Wrapf(fmt.Sprintf("Error granting owner membership for schema %s: {{err}}", schemaName), err)
+		}
+	}
+
 	for _, query := range queries {
 		if _, err = txn.Exec(query); err != nil {
 			return errwrap.Wrapf(fmt.Sprintf("Error creating schema %s: {{err}}", schemaName), err)
+		}
+	}
+
+	// Revoke the owner privileges if we had to grant it.
+	if ownerGranted {
+		err = revokeRoleMembership(txn, schemaOwner, currentUser)
+		if err != nil {
+			return errwrap.Wrapf(fmt.Sprintf("Error revoking owner membership for schema %s: {{err}}", schemaName), err)
 		}
 	}
 
@@ -219,15 +238,35 @@ func resourcePostgreSQLSchemaDelete(d *schema.ResourceData, meta interface{}) er
 	defer deferredRollback(txn)
 
 	schemaName := d.Get(schemaNameAttr).(string)
+	schemaOwner := d.Get(schemaOwnerAttr).(string)
 
 	dropMode := "RESTRICT"
 	if d.Get(schemaDropCascade).(bool) {
 		dropMode = "CASCADE"
 	}
 
+	// Needed in order to drop the schema if the connection user is not a
+	// superuser
+	currentUser := c.config.getDatabaseUsername()
+	ownerGranted := false
+	if schemaOwner != "" {
+		ownerGranted, err = grantRoleMembership(txn, schemaOwner, currentUser)
+		if err != nil {
+			return errwrap.Wrapf(fmt.Sprintf("Error granting owner membership for schema %s: {{err}}", schemaName), err)
+		}
+	}
+
 	sql := fmt.Sprintf("DROP SCHEMA %s %s", pq.QuoteIdentifier(schemaName), dropMode)
 	if _, err = txn.Exec(sql); err != nil {
 		return errwrap.Wrapf("Error deleting schema: {{err}}", err)
+	}
+
+	// Revoke the owner privileges if we had to grant it.
+	if ownerGranted {
+		err = revokeRoleMembership(txn, schemaOwner, currentUser)
+		if err != nil {
+			return errwrap.Wrapf(fmt.Sprintf("Error revoking owner membership for schema %s: {{err}}", schemaName), err)
+		}
 	}
 
 	if err := txn.Commit(); err != nil {
@@ -350,6 +389,19 @@ func resourcePostgreSQLSchemaUpdate(d *schema.ResourceData, meta interface{}) er
 	}
 	defer deferredRollback(txn)
 
+	// Needed in order to set policies against the schema if the connection user is not a
+	// superuser
+	schemaName := d.Get(schemaNameAttr).(string)
+	schemaOwner := d.Get(schemaOwnerAttr).(string)
+	currentUser := c.config.getDatabaseUsername()
+	ownerGranted := false
+	if schemaOwner != "" {
+		ownerGranted, err = grantRoleMembership(txn, schemaOwner, currentUser)
+		if err != nil {
+			return errwrap.Wrapf(fmt.Sprintf("Error granting owner membership for schema %s: {{err}}", schemaName), err)
+		}
+	}
+
 	if err := setSchemaName(txn, d, c); err != nil {
 		return err
 	}
@@ -360,6 +412,14 @@ func resourcePostgreSQLSchemaUpdate(d *schema.ResourceData, meta interface{}) er
 
 	if err := setSchemaPolicy(txn, d); err != nil {
 		return err
+	}
+
+	// Revoke the owner privileges if we had to grant it.
+	if ownerGranted {
+		err = revokeRoleMembership(txn, schemaOwner, currentUser)
+		if err != nil {
+			return errwrap.Wrapf(fmt.Sprintf("Error revoking owner membership for schema %s: {{err}}", schemaName), err)
+		}
 	}
 
 	if err := txn.Commit(); err != nil {

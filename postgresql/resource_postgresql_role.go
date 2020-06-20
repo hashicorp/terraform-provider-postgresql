@@ -31,6 +31,7 @@ const (
 	roleSuperuserAttr         = "superuser"
 	roleValidUntilAttr        = "valid_until"
 	roleRolesAttr             = "roles"
+	roleRoleParameterAttr     = "role_parameter"
 	roleSearchPathAttr        = "search_path"
 	roleStatementTimeoutAttr  = "statement_timeout"
 
@@ -73,6 +74,11 @@ func resourcePostgreSQLRole() *schema.Resource {
 				Set:         schema.HashString,
 				MinItems:    0,
 				Description: "Role(s) to grant to this new role",
+			},
+			roleRoleParameterAttr: {
+				Type:        schema.TypeString,
+				Optional:    true,
+				Description: "Sets a ROLE parameter on this role",
 			},
 			roleSearchPathAttr: {
 				Type:        schema.TypeList,
@@ -290,6 +296,10 @@ func resourcePostgreSQLRoleCreate(d *schema.ResourceData, meta interface{}) erro
 		return err
 	}
 
+	if err = alterRoleParameter(txn, d); err != nil {
+		return err
+	}
+
 	if err = setStatementTimeout(txn, d); err != nil {
 		return err
 	}
@@ -448,6 +458,7 @@ func resourcePostgreSQLRoleReadImpl(c *Client, d *schema.ResourceData) error {
 	d.Set(roleReplicationAttr, roleBypassRLS)
 	d.Set(roleRolesAttr, pgArrayToSet(roleRoles))
 	d.Set(roleSearchPathAttr, readSearchPath(roleConfig))
+	d.Set(roleRoleParameterAttr, readRoleParameter(roleConfig))
 
 	statementTimeout, err := readStatementTimeout(roleConfig)
 	if err != nil {
@@ -478,6 +489,19 @@ func readSearchPath(roleConfig pq.ByteaArray) []string {
 		}
 	}
 	return nil
+}
+
+// readRoleParameter searches for a role entry in the rolconfig array.
+// In case no such value is present, it returns empty string.
+func readRoleParameter(roleConfig pq.ByteaArray) string {
+	for _, v := range roleConfig {
+		config := string(v)
+		if strings.HasPrefix(config, roleRoleParameterAttr) {
+			var result = strings.TrimPrefix(config, roleRoleParameterAttr+"=")
+			return result
+		}
+	}
+	return ""
 }
 
 // readStatementTimeout searches for a statement_timeout entry in the rolconfig array.
@@ -621,6 +645,10 @@ func resourcePostgreSQLRoleUpdate(d *schema.ResourceData, meta interface{}) erro
 	}
 
 	if err = alterSearchPath(txn, d); err != nil {
+		return err
+	}
+
+	if err = alterRoleParameter(txn, d); err != nil {
 		return err
 	}
 
@@ -947,6 +975,31 @@ func setStatementTimeout(txn *sql.Tx, d *schema.ResourceData) error {
 		)
 		if _, err := txn.Exec(sql); err != nil {
 			return fmt.Errorf("could not reset statement_timeout for %s: %w", roleName, err)
+		}
+	}
+	return nil
+}
+
+func alterRoleParameter(txn *sql.Tx, d *schema.ResourceData) error {
+	if !d.HasChange(roleRoleParameterAttr) {
+		return nil
+	}
+
+	roleName := d.Get(roleNameAttr).(string)
+	roleParameter := d.Get(roleRoleParameterAttr).(string)
+	if len(roleParameter) > 0 {
+		sql := fmt.Sprintf(
+			"ALTER ROLE %s SET role TO %s", pq.QuoteIdentifier(roleName), roleParameter,
+		)
+		if _, err := txn.Exec(sql); err != nil {
+			return fmt.Errorf("could not set role parameter %s for %s: %w", roleParameter, roleName, err)
+		}
+	} else {
+		sql := fmt.Sprintf(
+			"ALTER ROLE %s RESET role", pq.QuoteIdentifier(roleName),
+		)
+		if _, err := txn.Exec(sql); err != nil {
+			return fmt.Errorf("could not reset role parameter for %s: %w", roleName, err)
 		}
 	}
 	return nil

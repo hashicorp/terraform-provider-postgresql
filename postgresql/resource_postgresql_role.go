@@ -496,8 +496,8 @@ func readSearchPath(roleConfig pq.ByteaArray) []string {
 func readRoleParameter(roleConfig pq.ByteaArray) string {
 	for _, v := range roleConfig {
 		config := string(v)
-		if strings.HasPrefix(config, roleRoleParameterAttr) {
-			var result = strings.TrimPrefix(config, roleRoleParameterAttr+"=")
+		if strings.HasPrefix(config, "role=") {
+			var result = strings.TrimPrefix(config, "role=")
 			return result
 		}
 	}
@@ -981,10 +981,6 @@ func setStatementTimeout(txn *sql.Tx, d *schema.ResourceData) error {
 }
 
 func alterRoleParameter(txn *sql.Tx, d *schema.ResourceData) error {
-	if !d.HasChange(roleRoleParameterAttr) {
-		return nil
-	}
-
 	roleName := d.Get(roleNameAttr).(string)
 	roleParameter := d.Get(roleRoleParameterAttr).(string)
 	if len(roleParameter) > 0 {

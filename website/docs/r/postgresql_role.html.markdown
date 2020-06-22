@@ -85,6 +85,9 @@ resource "postgresql_role" "my_replication_role" {
 * `password` - (Optional) Sets the role's password. A password is only of use
   for roles having the `login` attribute set to true.
 
+* `role_parameter` - (Optional) Sets the `role` parameter for this role. The specified role
+  must be a part of `roles` list, unless this is a superuser.
+
 * `roles` - (Optional) Defines list of roles which will be granted to this new role.
 
 * `search_path` - (Optional) Alters the search path of this new role. Note that

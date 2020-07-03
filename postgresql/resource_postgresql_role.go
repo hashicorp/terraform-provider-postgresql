@@ -985,7 +985,7 @@ func alterRoleParameter(txn *sql.Tx, d *schema.ResourceData) error {
 	roleParameter := d.Get(roleRoleParameterAttr).(string)
 	if len(roleParameter) > 0 {
 		sql := fmt.Sprintf(
-			"ALTER ROLE %s SET role TO %s", pq.QuoteIdentifier(roleName), roleParameter,
+			"ALTER ROLE %s SET role TO %s", pq.QuoteIdentifier(roleName), pq.QuoteIdentifier(roleParameter),
 		)
 		if _, err := txn.Exec(sql); err != nil {
 			return fmt.Errorf("could not set role parameter %s for %s: %w", roleParameter, roleName, err)

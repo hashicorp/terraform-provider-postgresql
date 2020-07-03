@@ -24,12 +24,12 @@ func TestAccPostgresqlRole_Basic(t *testing.T) {
 			{
 				Config: testAccPostgresqlRoleConfig,
 				Check: resource.ComposeTestCheckFunc(
-					testAccCheckPostgresqlRoleExists("myrole2", nil, nil),
+					testAccCheckPostgresqlRoleExists("myrole2", nil, nil, ""),
 					resource.TestCheckResourceAttr("postgresql_role.myrole2", "name", "myrole2"),
 					resource.TestCheckResourceAttr("postgresql_role.myrole2", "login", "true"),
 					resource.TestCheckResourceAttr("postgresql_role.myrole2", "roles.#", "0"),
 
-					testAccCheckPostgresqlRoleExists("role_default", nil, nil),
+					testAccCheckPostgresqlRoleExists("role_default", nil, nil, ""),
 					resource.TestCheckResourceAttr("postgresql_role.role_with_defaults", "name", "role_default"),
 					resource.TestCheckResourceAttr("postgresql_role.role_with_defaults", "superuser", "false"),
 					resource.TestCheckResourceAttr("postgresql_role.role_with_defaults", "create_database", "false"),
@@ -51,11 +51,13 @@ func TestAccPostgresqlRole_Basic(t *testing.T) {
 					resource.TestCheckResourceAttr("postgresql_role.role_with_superuser", "superuser", "true"),
 					resource.TestCheckResourceAttr("postgresql_role.role_with_defaults", "roles.#", "0"),
 
-					testAccCheckPostgresqlRoleExists("sub_role", []string{"myrole2", "role_simple"}, nil),
+					testAccCheckPostgresqlRoleExists("sub_role", []string{"myrole2", "role_simple"}, nil, ""),
 					resource.TestCheckResourceAttr("postgresql_role.sub_role", "name", "sub_role"),
 					resource.TestCheckResourceAttr("postgresql_role.sub_role", "roles.#", "2"),
 
-					testAccCheckPostgresqlRoleExists("role_with_search_path", nil, []string{"bar", "foo"}),
+					testAccCheckPostgresqlRoleExists("role_with_search_path", nil, []string{"bar", "foo"}, ""),
+
+					testAccCheckPostgresqlRoleExists("role_with_role_parameter", nil, nil, "myrole2"),
 
 					// The int part in the attr name is the schema.HashString of the value.
 					resource.TestCheckResourceAttr("postgresql_role.sub_role", "roles.719783566", "myrole2"),
@@ -88,6 +90,7 @@ resource "postgresql_role" "update_role" {
   connection_limit = 5
   password = "titi"
   roles = ["${postgresql_role.group_role.name}"]
+  role_parameter = "${postgresql_role.group_role.id}"
   search_path = ["mysearchpath"]
   statement_timeout = 30000
 }
@@ -103,7 +106,7 @@ resource "postgresql_role" "update_role" {
 			{
 				Config: configCreate,
 				Check: resource.ComposeTestCheckFunc(
-					testAccCheckPostgresqlRoleExists("update_role", []string{}, nil),
+					testAccCheckPostgresqlRoleExists("update_role", []string{}, nil, ""),
 					resource.TestCheckResourceAttr("postgresql_role.update_role", "name", "update_role"),
 					resource.TestCheckResourceAttr("postgresql_role.update_role", "login", "true"),
 					resource.TestCheckResourceAttr("postgresql_role.update_role", "connection_limit", "-1"),
@@ -118,7 +121,7 @@ resource "postgresql_role" "update_role" {
 			{
 				Config: configUpdate,
 				Check: resource.ComposeTestCheckFunc(
-					testAccCheckPostgresqlRoleExists("update_role2", []string{"group_role"}, nil),
+					testAccCheckPostgresqlRoleExists("update_role2", []string{"group_role"}, nil, "group_role"),
 					resource.TestCheckResourceAttr(
 						"postgresql_role.update_role", "name", "update_role2",
 					),
@@ -134,6 +137,7 @@ resource "postgresql_role" "update_role" {
 					resource.TestCheckResourceAttr("postgresql_role.update_role", "search_path.#", "1"),
 					resource.TestCheckResourceAttr("postgresql_role.update_role", "search_path.0", "mysearchpath"),
 					resource.TestCheckResourceAttr("postgresql_role.update_role", "statement_timeout", "30000"),
+					resource.TestCheckResourceAttr("postgresql_role.update_role", "role_parameter", "group_role"),
 					testAccCheckRoleCanLogin(t, "update_role2", "titi"),
 				),
 			},
@@ -142,7 +146,7 @@ resource "postgresql_role" "update_role" {
 			{
 				Config: configCreate,
 				Check: resource.ComposeTestCheckFunc(
-					testAccCheckPostgresqlRoleExists("update_role", []string{}, nil),
+					testAccCheckPostgresqlRoleExists("update_role", []string{}, nil, ""),
 					resource.TestCheckResourceAttr("postgresql_role.update_role", "name", "update_role"),
 					resource.TestCheckResourceAttr("postgresql_role.update_role", "login", "true"),
 					resource.TestCheckResourceAttr("postgresql_role.update_role", "connection_limit", "-1"),
@@ -179,7 +183,7 @@ func testAccCheckPostgresqlRoleDestroy(s *terraform.State) error {
 	return nil
 }
 
-func testAccCheckPostgresqlRoleExists(roleName string, grantedRoles []string, searchPath []string) resource.TestCheckFunc {
+func testAccCheckPostgresqlRoleExists(roleName string, grantedRoles []string, searchPath []string, roleParameter string) resource.TestCheckFunc {
 	return func(s *terraform.State) error {
 		client := testAccProvider.Meta().(*Client)
 
@@ -203,6 +207,11 @@ func testAccCheckPostgresqlRoleExists(roleName string, grantedRoles []string, se
 				return err
 			}
 		}
+
+		if err := checkRoleParameter(client, roleName, roleParameter); err != nil {
+			return err
+		}
+
 		return nil
 	}
 }
@@ -268,7 +277,7 @@ func checkGrantedRoles(client *Client, roleName string, expectedRoles []string) 
 func checkSearchPath(client *Client, roleName string, expectedSearchPath []string) error {
 	var searchPathStr string
 	err := client.DB().QueryRow(
-		"SELECT (pg_options_to_table(rolconfig)).option_value FROM pg_roles WHERE rolname=$1;",
+		"SELECT option_value FROM pg_roles r, pg_options_to_table(r.rolconfig) WHERE option_name='search_path' AND rolname=$1;",
 		roleName,
 	).Scan(&searchPathStr)
 
@@ -285,6 +294,29 @@ func checkSearchPath(client *Client, roleName string, expectedSearchPath []strin
 		return fmt.Errorf(
 			"search_path is not equal to expected value. expected %v - got %v",
 			expectedSearchPath, searchPath,
+		)
+	}
+	return nil
+}
+
+func checkRoleParameter(client *Client, roleName string, expectedRoleParameter string) error {
+	var roleParameterStr string
+	err := client.DB().QueryRow(
+		"SELECT option_value FROM pg_roles r, pg_options_to_table(r.rolconfig) WHERE option_name='role' AND rolname=$1;",
+		roleName,
+	).Scan(&roleParameterStr)
+
+	// The query returns ErrNoRows if the role parameter is not found.
+	if err != nil && err == sql.ErrNoRows {
+		roleParameterStr = ""
+	} else if err != nil {
+		return fmt.Errorf("Error reading role: %v", err)
+	}
+
+	if expectedRoleParameter != roleParameterStr {
+		return fmt.Errorf(
+			"role is not equal to expected value. expected %v - got %v",
+			expectedRoleParameter, roleParameterStr,
 		)
 	}
 	return nil
@@ -347,6 +379,12 @@ resource "postgresql_role" "sub_role" {
 resource "postgresql_role" "role_with_search_path" {
   name = "role_with_search_path"
   search_path = ["bar", "foo"]
+}
+
+resource "postgresql_role" "role_with_role_parameter" {
+	name = "role_with_role_parameter"
+	role_parameter = "${postgresql_role.myrole2.id}"
+	roles = ["${postgresql_role.myrole2.id}"]
 }
 
 resource "postgresql_role" "role_with_superuser" {

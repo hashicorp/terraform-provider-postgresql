@@ -958,7 +958,7 @@ func setRoleParameters(txn *sql.Tx, d *schema.ResourceData) error {
 		}
 
 		query := fmt.Sprintf(
-			"ALTER ROLE %s SET %s TO %s", pq.QuoteIdentifier(roleName), param, pq.QuoteIdentifier(value.(string)),
+			"ALTER ROLE %s SET %s TO %s", pq.QuoteIdentifier(roleName), param, pq.QuoteLiteral(value.(string)),
 		)
 
 		fmt.Printf("Setting: %s\n", query)

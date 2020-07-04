@@ -1020,7 +1020,7 @@ func alterRoleParameters(txn *sql.Tx, d *schema.ResourceData) error {
 func getRoleParametersImpl(db QueryAble, d *schema.ResourceData) (map[string]string, error) {
 	roleName := d.Get(roleNameAttr).(string)
 
-	query := "SELECT option_name, option_value FROM pg_roles r, pg_options_to_table(r.rolconfig) WHERE rolname=$1"
+	query := "SELECT option_name, option_value FROM (SELECT (pg_options_to_table(r.rolconfig)).* FROM pg_roles r where rolname = $1) t"
 	rows, err := db.Query(query, roleName)
 
 	if err != nil {

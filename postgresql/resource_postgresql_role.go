@@ -39,7 +39,7 @@ const (
 	roleDepEncryptedAttr = "encrypted"
 )
 
-var roleStandaloneParameters = [...]string{roleSearchPathAttr, roleStatementTimeoutAttr, roleValidUntilAttr}
+var roleStandaloneParameters = [...]string{roleSearchPathAttr, roleStatementTimeoutAttr}
 
 func resourcePostgreSQLRole() *schema.Resource {
 	return &schema.Resource{
@@ -958,7 +958,7 @@ func setRoleParameters(txn *sql.Tx, d *schema.ResourceData) error {
 		}
 
 		query := fmt.Sprintf(
-			"ALTER ROLE %s SET %s TO %s", pq.QuoteIdentifier(roleName), param, value.(string),
+			"ALTER ROLE %s SET %s TO %s", pq.QuoteIdentifier(roleName), param, pq.QuoteIdentifier(value.(string)),
 		)
 
 		fmt.Printf("Setting: %s\n", query)
@@ -1000,7 +1000,7 @@ func alterRoleParameters(txn *sql.Tx, d *schema.ResourceData) error {
 			continue
 		}
 
-		if _, ok := roleParameters[param]; ok {
+		if _, ok := roleParameters[param]; !ok {
 			sql := fmt.Sprintf(
 				"ALTER ROLE %s RESET %s", pq.QuoteIdentifier(roleName), param,
 			)

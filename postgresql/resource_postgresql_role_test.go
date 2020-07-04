@@ -74,6 +74,9 @@ resource "postgresql_role" "update_role" {
   login = true
   password = "toto"
   valid_until = "2099-05-04 12:00:00+00"
+  parameters = {
+	  application_name = "First_app"
+  }
 }
 `
 
@@ -90,6 +93,11 @@ resource "postgresql_role" "update_role" {
   roles = ["${postgresql_role.group_role.name}"]
   search_path = ["mysearchpath"]
   statement_timeout = 30000
+  parameters = {
+	application_name = "Final"
+	log_statement = "all"
+	role = "${postgresql_role.group_role.name}"
+  }
 }
 `
 	resource.Test(t, resource.TestCase{

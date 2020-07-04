@@ -342,6 +342,12 @@ resource "postgresql_role" "sub_role" {
 		"${postgresql_role.myrole2.id}",
 		"${postgresql_role.role_simple.id}",
 	]
+	parameters = {
+		application_name = "aaa"
+		role = "${postgresql_role.myrole2.id}"
+		//setting this will raise validation error	
+		//search_path = "aaa"
+	}
 }
 
 resource "postgresql_role" "role_with_search_path" {

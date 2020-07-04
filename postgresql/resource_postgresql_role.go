@@ -25,6 +25,7 @@ const (
 	roleLoginAttr             = "login"
 	roleNameAttr              = "name"
 	rolePasswordAttr          = "password"
+	roleParametersAttr        = "parameters"
 	roleReplicationAttr       = "replication"
 	roleSkipDropRoleAttr      = "skip_drop_role"
 	roleSkipReassignOwnedAttr = "skip_reassign_owned"
@@ -37,6 +38,8 @@ const (
 	// Deprecated options
 	roleDepEncryptedAttr = "encrypted"
 )
+
+var roleStandaloneParameters = [...]string{roleSearchPathAttr, roleStatementTimeoutAttr, roleValidUntilAttr}
 
 func resourcePostgreSQLRole() *schema.Resource {
 	return &schema.Resource{
@@ -159,6 +162,13 @@ func resourcePostgreSQLRole() *schema.Resource {
 				Optional:     true,
 				Description:  "Abort any statement that takes more than the specified number of milliseconds",
 				ValidateFunc: validation.IntAtLeast(0),
+			},
+			roleParametersAttr: {
+				Type:         schema.TypeMap,
+				Optional:     true,
+				Description:  "Specifies default parameters which will be set for the role",
+				Elem:         &schema.Schema{Type: schema.TypeString},
+				ValidateFunc: validateRoleParameters,
 			},
 		},
 	}
@@ -291,6 +301,10 @@ func resourcePostgreSQLRoleCreate(d *schema.ResourceData, meta interface{}) erro
 	}
 
 	if err = setStatementTimeout(txn, d); err != nil {
+		return err
+	}
+
+	if err = setRoleParameters(txn, d); err != nil {
 		return err
 	}
 
@@ -457,6 +471,11 @@ func resourcePostgreSQLRoleReadImpl(c *Client, d *schema.ResourceData) error {
 	d.Set(roleStatementTimeoutAttr, statementTimeout)
 
 	d.SetId(roleName)
+
+	err = getRoleParameters(c.DB(), d)
+	if err != nil {
+		return err
+	}
 
 	password, err := readRolePassword(c, d, roleCanLogin)
 	if err != nil {
@@ -625,6 +644,10 @@ func resourcePostgreSQLRoleUpdate(d *schema.ResourceData, meta interface{}) erro
 	}
 
 	if err = setStatementTimeout(txn, d); err != nil {
+		return err
+	}
+
+	if err = alterRoleParameters(txn, d); err != nil {
 		return err
 	}
 
@@ -898,6 +921,134 @@ func grantRoles(txn *sql.Tx, d *schema.ResourceData) error {
 		}
 	}
 	return nil
+}
+
+func isStandaloneRoleParameter(paramName string) bool {
+	for _, standaloneParameter := range roleStandaloneParameters {
+		if strings.ToLower(paramName) == strings.ToLower(standaloneParameter) {
+			return true
+		}
+	}
+	return false
+}
+
+func validateRoleParameters(value interface{}, key string) (ws []string, es []error) {
+	paramValues := value.(map[string]interface{})
+
+	for p, v := range paramValues {
+		if len(v.(string)) == 0 {
+			es = append(es, fmt.Errorf("Parameter %s has no value", p))
+		}
+
+		if isStandaloneRoleParameter(p) {
+			es = append(es, fmt.Errorf("Parameter %s should be set by dedicated Role resource property", p))
+		}
+	}
+	return
+}
+
+func setRoleParameters(txn *sql.Tx, d *schema.ResourceData) error {
+	roleName := d.Get(roleNameAttr).(string)
+	roleParameters := d.Get(roleParametersAttr).(map[string]interface{})
+
+	for param, value := range roleParameters {
+		// We completely ignore parameters set by other properties
+		if isStandaloneRoleParameter(param) {
+			continue
+		}
+
+		query := fmt.Sprintf(
+			"ALTER ROLE %s SET %s TO %s", pq.QuoteIdentifier(roleName), param, value.(string),
+		)
+
+		fmt.Printf("Setting: %s\n", query)
+
+		if _, err := txn.Exec(query); err != nil {
+			return fmt.Errorf("Could not set parameter %s for %s: %w", param, roleName, err)
+		}
+	}
+
+	return nil
+}
+
+func getRoleParameters(db *sql.DB, d *schema.ResourceData) error {
+	var params map[string]string
+	var err error
+
+	if params, err = getRoleParametersImpl(db, d); err != nil {
+		return err
+	}
+
+	return d.Set(roleParametersAttr, params)
+}
+
+func alterRoleParameters(txn *sql.Tx, d *schema.ResourceData) error {
+	roleName := d.Get(roleNameAttr).(string)
+	roleParameters := d.Get(roleParametersAttr).(map[string]interface{})
+
+	var existingParams map[string]string
+	var err error
+
+	if existingParams, err = getRoleParametersImpl(txn, d); err != nil {
+		return err
+	}
+
+	// Unset parameters that currently exist, but are not supposed to be set
+	for param := range existingParams {
+		// We completely ignore parameters set by other properties
+		if isStandaloneRoleParameter(param) {
+			continue
+		}
+
+		if _, ok := roleParameters[param]; ok {
+			sql := fmt.Sprintf(
+				"ALTER ROLE %s RESET %s", pq.QuoteIdentifier(roleName), param,
+			)
+
+			fmt.Printf("Altering: %s\n", sql)
+
+			if _, err := txn.Exec(sql); err != nil {
+				return fmt.Errorf("Could not reset %s parameter for %s: %w", param, roleName, err)
+			}
+		}
+	}
+
+	// Now let's set actual parameters
+	return setRoleParameters(txn, d)
+}
+
+func getRoleParametersImpl(db QueryAble, d *schema.ResourceData) (map[string]string, error) {
+	roleName := d.Get(roleNameAttr).(string)
+
+	query := "SELECT option_name, option_value FROM pg_roles r, pg_options_to_table(r.rolconfig) WHERE rolname=$1"
+	rows, err := db.Query(query, roleName)
+
+	if err != nil {
+		return nil, fmt.Errorf("Unable to read role paramaters for %s: %w", roleName, err)
+	}
+	defer rows.Close()
+
+	dbParams := make(map[string]string)
+
+	for rows.Next() {
+		var (
+			paramName  string
+			paramValue string
+		)
+		if err := rows.Scan(&paramName, &paramValue); err != nil {
+			return nil, fmt.Errorf("Unable to read role paramaters for %s: %w", roleName, err)
+		}
+
+		// We completely ignore parameters set by other properties
+		if isStandaloneRoleParameter(paramName) {
+			fmt.Printf("Ignored: %s, %s\n", paramName, paramValue)
+			continue
+		}
+
+		fmt.Printf("Getting: %s, %s\n", paramName, paramValue)
+		dbParams[paramName] = paramValue
+	}
+	return dbParams, nil
 }
 
 func alterSearchPath(txn *sql.Tx, d *schema.ResourceData) error {

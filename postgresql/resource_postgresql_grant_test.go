@@ -17,6 +17,7 @@ func TestCreateGrantQuery(t *testing.T) {
 	cases := []struct {
 		resource   *schema.ResourceData
 		privileges []string
+		tables     []string
 		expected   string
 	}{
 		{
@@ -84,10 +85,20 @@ func TestCreateGrantQuery(t *testing.T) {
 			privileges: []string{"ALL PRIVILEGES"},
 			expected:   fmt.Sprintf("GRANT ALL PRIVILEGES ON DATABASE %s TO %s WITH GRANT OPTION", pq.QuoteIdentifier(databaseName), pq.QuoteIdentifier(roleName)),
 		},
+		{
+			resource: schema.TestResourceDataRaw(t, resourcePostgreSQLGrant().Schema, map[string]interface{}{
+				"object_type": "TABLE",
+				"database":    databaseName,
+				"role":        roleName,
+			}),
+			privileges: []string{"SELECT", "INSERT"},
+			tables:     []string{"apples", "oranges"},
+			expected:   fmt.Sprintf("GRANT SELECT,INSERT ON TABLE apples,oranges TO %s", pq.QuoteIdentifier(roleName)),
+		},
 	}
 
 	for _, c := range cases {
-		out := createGrantQuery(c.resource, c.privileges)
+		out := createGrantQuery(c.resource, c.privileges, c.tables)
 		if out != c.expected {
 			t.Fatalf("Error matching output and expected: %#v vs %#v", out, c.expected)
 		}

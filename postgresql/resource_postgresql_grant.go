@@ -61,6 +61,15 @@ func resourcePostgreSQLGrant() *schema.Resource {
 				ValidateFunc: validation.StringInSlice(allowedObjectTypes, false),
 				Description:  "The PostgreSQL object type to grant the privileges on (one of: " + strings.Join(allowedObjectTypes, ", ") + ")",
 			},
+			"tables": {
+				Type:        schema.TypeSet,
+				Elem:        &schema.Schema{Type: schema.TypeString},
+				Set:         schema.HashString,
+				MinItems:    0,
+				Optional:    true,
+				ForceNew:    true,
+				Description: "The PostgreSQL tables the grant applies to. If none are specified, the grant applies to all tables.",
+			},
 			"privileges": &schema.Schema{
 				Type:        schema.TypeSet,
 				Required:    true,
@@ -323,7 +332,7 @@ GROUP BY pg_class.relname
 	return nil
 }
 
-func createGrantQuery(d *schema.ResourceData, privileges []string) string {
+func createGrantQuery(d *schema.ResourceData, privileges []string, tables []string) string {
 	var query string
 
 	switch strings.ToUpper(d.Get("object_type").(string)) {
@@ -335,13 +344,22 @@ func createGrantQuery(d *schema.ResourceData, privileges []string) string {
 			pq.QuoteIdentifier(d.Get("role").(string)),
 		)
 	case "TABLE", "SEQUENCE", "FUNCTION":
-		query = fmt.Sprintf(
-			"GRANT %s ON ALL %sS IN SCHEMA %s TO %s",
-			strings.Join(privileges, ","),
-			strings.ToUpper(d.Get("object_type").(string)),
-			pq.QuoteIdentifier(d.Get("schema").(string)),
-			pq.QuoteIdentifier(d.Get("role").(string)),
-		)
+		if len(tables) > 0 {
+			query = fmt.Sprintf(
+				"GRANT %s ON TABLE %s TO %s",
+				strings.Join(privileges, ","),
+				strings.Join(tables, ","),
+				pq.QuoteIdentifier(d.Get("role").(string)),
+			)
+		} else {
+			query = fmt.Sprintf(
+				"GRANT %s ON ALL %sS IN SCHEMA %s TO %s",
+				strings.Join(privileges, ","),
+				strings.ToUpper(d.Get("object_type").(string)),
+				pq.QuoteIdentifier(d.Get("schema").(string)),
+				pq.QuoteIdentifier(d.Get("role").(string)),
+			)
+		}
 	}
 
 	if d.Get("with_grant_option").(bool) == true {
@@ -378,8 +396,12 @@ func grantRolePrivileges(txn *sql.Tx, d *schema.ResourceData) error {
 	for _, priv := range d.Get("privileges").(*schema.Set).List() {
 		privileges = append(privileges, priv.(string))
 	}
+	tables := []string{}
+	for _, tab := range d.Get("tables").(*schema.Set).List() {
+		tables = append(tables, tab.(string))
+	}
 
-	query := createGrantQuery(d, privileges)
+	query := createGrantQuery(d, privileges, tables)
 
 	_, err := txn.Exec(query)
 	return err

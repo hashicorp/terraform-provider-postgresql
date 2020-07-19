@@ -401,14 +401,8 @@ func createRevokeQuery(d *schema.ResourceData, tables []string) string {
 }
 
 func grantRolePrivileges(txn *sql.Tx, d *schema.ResourceData) error {
-	privileges := []string{}
-	for _, priv := range d.Get("privileges").(*schema.Set).List() {
-		privileges = append(privileges, priv.(string))
-	}
-	tables := []string{}
-	for _, tab := range d.Get("tables").(*schema.Set).List() {
-		tables = append(tables, tab.(string))
-	}
+	privileges := getStringsFromSet(d, "privileges")
+	tables := getStringsFromSet(d, "tables")
 
 	query := createGrantQuery(d, privileges, tables)
 
@@ -417,11 +411,10 @@ func grantRolePrivileges(txn *sql.Tx, d *schema.ResourceData) error {
 }
 
 func revokeRolePrivileges(txn *sql.Tx, d *schema.ResourceData) error {
-	tables := []string{}
-	for _, tab := range d.Get("tables").(*schema.Set).List() {
-		tables = append(tables, tab.(string))
-	}
+	tables := getStringsFromSet(d, "tables")
+
 	query := createRevokeQuery(d, tables)
+
 	if _, err := txn.Exec(query); err != nil {
 		return fmt.Errorf("could not execute revoke query: %w", err)
 	}
@@ -510,4 +503,12 @@ func getRolesToGrantForSchema(txn *sql.Tx, schemaName string) ([]string, error) 
 	}
 
 	return owners, nil
+}
+
+func getStringsFromSet(d *schema.ResourceData, setName string) []string {
+	strings := []string{}
+	for _, str := range d.Get(setName).(*schema.Set).List() {
+		strings = append(strings, str.(string))
+	}
+	return strings
 }

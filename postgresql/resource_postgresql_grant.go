@@ -369,7 +369,7 @@ func createGrantQuery(d *schema.ResourceData, privileges []string, tables []stri
 	return query
 }
 
-func createRevokeQuery(d *schema.ResourceData) string {
+func createRevokeQuery(d *schema.ResourceData, tables []string) string {
 	var query string
 
 	switch strings.ToUpper(d.Get("object_type").(string)) {
@@ -380,12 +380,21 @@ func createRevokeQuery(d *schema.ResourceData) string {
 			pq.QuoteIdentifier(d.Get("role").(string)),
 		)
 	case "TABLE", "SEQUENCE", "FUNCTION":
-		query = fmt.Sprintf(
-			"REVOKE ALL PRIVILEGES ON ALL %sS IN SCHEMA %s FROM %s",
-			strings.ToUpper(d.Get("object_type").(string)),
-			pq.QuoteIdentifier(d.Get("schema").(string)),
-			pq.QuoteIdentifier(d.Get("role").(string)),
-		)
+		if len(tables) > 0 {
+			query = fmt.Sprintf(
+				"REVOKE ALL PRIVILEGES ON TABLE %s FROM %s",
+				strings.Join(tables, ","),
+				pq.QuoteIdentifier(d.Get("role").(string)),
+			)
+		} else {
+			query = fmt.Sprintf(
+				"REVOKE ALL PRIVILEGES ON ALL %sS IN SCHEMA %s FROM %s",
+				strings.ToUpper(d.Get("object_type").(string)),
+				pq.QuoteIdentifier(d.Get("schema").(string)),
+				pq.QuoteIdentifier(d.Get("role").(string)),
+			)
+
+		}
 	}
 
 	return query
@@ -408,7 +417,11 @@ func grantRolePrivileges(txn *sql.Tx, d *schema.ResourceData) error {
 }
 
 func revokeRolePrivileges(txn *sql.Tx, d *schema.ResourceData) error {
-	query := createRevokeQuery(d)
+	tables := []string{}
+	for _, tab := range d.Get("tables").(*schema.Set).List() {
+		tables = append(tables, tab.(string))
+	}
+	query := createRevokeQuery(d, tables)
 	if _, err := txn.Exec(query); err != nil {
 		return fmt.Errorf("could not execute revoke query: %w", err)
 	}

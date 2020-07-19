@@ -110,8 +110,10 @@ func TestCreateRevokeQuery(t *testing.T) {
 	var roleName = "bar"
 
 	cases := []struct {
-		resource *schema.ResourceData
-		expected string
+		resource   *schema.ResourceData
+		tables     []string
+		privileges []string
+		expected   string
 	}{
 		{
 			resource: schema.TestResourceDataRaw(t, resourcePostgreSQLGrant().Schema, map[string]interface{}{
@@ -145,10 +147,19 @@ func TestCreateRevokeQuery(t *testing.T) {
 			}),
 			expected: fmt.Sprintf("REVOKE ALL PRIVILEGES ON DATABASE %s FROM %s", pq.QuoteIdentifier(databaseName), pq.QuoteIdentifier(roleName)),
 		},
+		{
+			resource: schema.TestResourceDataRaw(t, resourcePostgreSQLGrant().Schema, map[string]interface{}{
+				"object_type": "TABLE",
+				"database":    databaseName,
+				"role":        roleName,
+			}),
+			tables:   []string{"apples", "oranges"},
+			expected: fmt.Sprintf("REVOKE ALL PRIVILEGES ON TABLE apples,oranges FROM %s", pq.QuoteIdentifier(roleName)),
+		},
 	}
 
 	for _, c := range cases {
-		out := createRevokeQuery(c.resource)
+		out := createRevokeQuery(c.resource, c.tables)
 		if out != c.expected {
 			t.Fatalf("Error matching output and expected: %#v vs %#v", out, c.expected)
 		}

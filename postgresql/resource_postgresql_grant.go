@@ -225,7 +225,7 @@ func resourcePostgreSQLGrantDelete(d *schema.ResourceData, meta interface{}) err
 	return nil
 }
 
-func readDatabaseRolePriviges(txn *sql.Tx, d *schema.ResourceData) error {
+func readDatabaseRolePrivileges(txn *sql.Tx, d *schema.ResourceData) error {
 	query := `
 SELECT privilege_type
 FROM (
@@ -257,7 +257,7 @@ func readRolePrivileges(txn *sql.Tx, d *schema.ResourceData) error {
 	object_type := strings.ToUpper(d.Get("object_type").(string))
 	switch object_type {
 	case "DATABASE":
-		return readDatabaseRolePriviges(txn, d)
+		return readDatabaseRolePrivileges(txn, d)
 	case "FUNCTION":
 		query = `
 SELECT pg_proc.proname, array_remove(array_agg(privilege_type), NULL)

@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"sort"
 	"strings"
 
 	"github.com/hashicorp/terraform-plugin-sdk/helper/schema"
@@ -487,8 +488,13 @@ func generateGrantID(d *schema.ResourceData) string {
 		return strings.Join(parts, "_")
 	}
 
+	privileges := getStringsFromSet(d, "privileges")
+
+	sort.Strings(tables)
+	sort.Strings(privileges)
+
 	parts = append(parts, strings.Join(tables, ","))
-	parts = append(parts, strings.Join(getStringsFromSet(d, "privileges"), ","))
+	parts = append(parts, strings.Join(privileges, ","))
 
 	return strings.Join(parts, ":")
 }

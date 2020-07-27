@@ -202,7 +202,7 @@ func TestGenerateGrantID(t *testing.T) {
 			}),
 			tables:     []string{"test_table"},
 			privileges: []string{"UPDATE", "TRIGGER"},
-			expected:   "bar:foo:some_schema:table:test_table:UPDATE,TRIGGER",
+			expected:   "bar:foo:some_schema:table:test_table:TRIGGER,UPDATE",
 		},
 	}
 

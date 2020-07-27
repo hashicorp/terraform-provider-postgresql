@@ -482,7 +482,15 @@ func generateGrantID(d *schema.ResourceData) string {
 	}
 	parts = append(parts, objectType)
 
-	return strings.Join(parts, "_")
+	tables := getStringsFromSet(d, "tables")
+	if len(tables) == 0 {
+		return strings.Join(parts, "_")
+	}
+
+	parts = append(parts, strings.Join(tables, ","))
+	parts = append(parts, strings.Join(getStringsFromSet(d, "privileges"), ","))
+
+	return strings.Join(parts, ":")
 }
 
 func getRolesToGrantForSchema(txn *sql.Tx, schemaName string) ([]string, error) {

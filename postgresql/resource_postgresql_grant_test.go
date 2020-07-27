@@ -166,6 +166,58 @@ func TestCreateRevokeQuery(t *testing.T) {
 	}
 }
 
+func TestGenerateGrantID(t *testing.T) {
+	var databaseName = "foo"
+	var roleName = "bar"
+
+	cases := []struct {
+		resource   *schema.ResourceData
+		tables     []string
+		privileges []string
+		expected   string
+	}{
+		{
+			resource: schema.TestResourceDataRaw(t, resourcePostgreSQLGrant().Schema, map[string]interface{}{
+				"object_type": "database",
+				"database":    databaseName,
+				"role":        roleName,
+			}),
+			expected: "bar_foo_database",
+		},
+		{
+			resource: schema.TestResourceDataRaw(t, resourcePostgreSQLGrant().Schema, map[string]interface{}{
+				"object_type": "table",
+				"database":    databaseName,
+				"schema":      "some_schema",
+				"role":        roleName,
+			}),
+			expected: "bar_foo_some_schema_table",
+		},
+		{
+			resource: schema.TestResourceDataRaw(t, resourcePostgreSQLGrant().Schema, map[string]interface{}{
+				"object_type": "table",
+				"database":    databaseName,
+				"schema":      "some_schema",
+				"role":        roleName,
+			}),
+			tables:     []string{"test_table"},
+			privileges: []string{"UPDATE", "TRIGGER"},
+			expected:   "bar:foo:some_schema:table:test_table:UPDATE,TRIGGER",
+		},
+	}
+
+	for _, c := range cases {
+		c.resource.Set("privileges", c.privileges)
+		c.resource.Set("tables", c.tables)
+
+		actual := generateGrantID(c.resource)
+
+		if actual != c.expected {
+			t.Fatalf("Error matching output and expected: %#v vs %#v", actual, c.expected)
+		}
+	}
+}
+
 func TestAccPostgresqlGrant(t *testing.T) {
 	skipIfNotAcc(t)
 

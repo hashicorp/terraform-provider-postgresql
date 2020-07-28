@@ -28,6 +28,8 @@ var objectTypes = map[string]string{
 	"type":     "T",
 }
 
+const tableGrantIdDelimiter = ":"
+
 func resourcePostgreSQLGrant() *schema.Resource {
 	return &schema.Resource{
 		Create: resourcePostgreSQLGrantCreate,
@@ -608,11 +610,11 @@ func generateGrantID(d *schema.ResourceData) string {
 	parts = append(parts, strings.Join(tables, ","))
 	parts = append(parts, strings.Join(privileges, ","))
 
-	return strings.Join(parts, ":")
+	return strings.Join(parts, tableGrantIdDelimiter)
 }
 
 func readTableGrantID(d *schema.ResourceData) (string, string, string, string, []string, []string) {
-	parts := strings.Split(d.Id(), ":")
+	parts := strings.Split(d.Id(), tableGrantIdDelimiter)
 
 	role := parts[0]
 	database := parts[1]

@@ -311,9 +311,9 @@ WHERE pg_tables.schemaname= $1
 
 	expectedTables := convertToSet(tables)
 	actualTables := convertToSet(actualTableNames)
+	// If tables do not have the same privileges as saved in the state,
+	// we return an empty privileges to force an update.
 	if !expectedTables.Equal(actualTables) {
-		// If table doesn't have the same privileges as saved in the state,
-		// we return an empty privileges to force an update.
 		log.Printf(
 			"[DEBUG] role %s expected to have privileges %v on tables %v but actually had privileges on tables %v",
 			role, privileges, tables, actualTableNames,
@@ -327,11 +327,11 @@ WHERE pg_tables.schemaname= $1
 	expectedPrivileges := convertToSet(privileges)
 	privilegesOk := true
 	for table, privs := range readTablePrivileges {
+		// If privileges are not the same as saved in the state,
+		// we return an empty privileges to force an update.
 		if !expectedPrivileges.Equal(privs) {
 			privilegesOk = false
 
-			// If privileges are not the same as saved in the state,
-			// we return an empty privileges to force an update.
 			log.Printf(
 				"[DEBUG] role %s on table %s expected to have privileges %v but actually had privileges on tables %v",
 				role, table, privileges, privs,

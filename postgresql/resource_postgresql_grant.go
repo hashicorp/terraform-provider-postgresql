@@ -514,21 +514,21 @@ func createRevokeQuery(d *schema.ResourceData, tables []string) string {
 func grantRolePrivileges(txn *sql.Tx, d *schema.ResourceData) error {
 	privileges := getStringsFromSet(d, "privileges")
 	tables := getStringsFromSet(d, "tables")
-
 	query := createGrantQuery(d, privileges, tables)
 
 	_, err := txn.Exec(query)
+
 	return err
 }
 
 func revokeRolePrivileges(txn *sql.Tx, d *schema.ResourceData) error {
 	tables := getStringsFromSet(d, "tables")
-
 	query := createRevokeQuery(d, tables)
 
 	if _, err := txn.Exec(query); err != nil {
 		return fmt.Errorf("could not execute revoke query: %w", err)
 	}
+
 	return nil
 }
 

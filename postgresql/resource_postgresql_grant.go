@@ -402,7 +402,7 @@ GROUP BY pg_class.relname
 `
 	}
 
-	if hasSpecificTableGrants(d) {
+	if d.Get("object_type").(string) == "table" && strings.Contains(d.Id(), tableGrantIdDelimiter) {
 		return readTableRolePrivileges(txn, d)
 	}
 
@@ -442,10 +442,6 @@ GROUP BY pg_class.relname
 	}
 
 	return nil
-}
-
-func hasSpecificTableGrants(d *schema.ResourceData) bool {
-	return d.Get("object_type").(string) == "table" && strings.Contains(d.Id(), ":")
 }
 
 func createGrantQuery(d *schema.ResourceData, privileges []string, tables []string) string {

@@ -291,11 +291,8 @@ WHERE pg_tables.schemaname= $1
 		return fmt.Errorf("could not read table privileges: %w", err)
 	}
 
-	privilegesForSet := make([]interface{}, len(privileges))
-	for i := range privileges {
-		privilegesForSet[i] = privileges[i]
-	}
-	expectedPrivileges := schema.NewSet(schema.HashString, privilegesForSet)
+	readTablePrivileges := make(map[string]*schema.Set, len(tables))
+	var actualTableNames []string
 
 	for rows.Next() {
 		var tableName string
@@ -306,25 +303,60 @@ WHERE pg_tables.schemaname= $1
 		}
 
 		privilegesSet := pgArrayToSet(privilegesArray)
-		if !privilegesSet.Equal(expectedPrivileges) {
-			// If table doesn't have the same privileges as saved in the state,
-			// we return an empty privileges to force an update.
-			log.Printf(
-				"[DEBUG] role %s expected to have privileges %v but has %v on %s",
-				role, privileges, privilegesSet, tableName,
-			)
-
-			d.Set("tables", schema.NewSet(schema.HashString, []interface{}{}))
-			d.Set("privileges", schema.NewSet(schema.HashString, []interface{}{}))
-
-			break
-		}
+		readTablePrivileges[tableName] = privilegesSet
+		actualTableNames = append(actualTableNames, tableName)
 	}
 
-	d.Set("tables", tables)
-	d.Set("privileges", privileges)
+	expectedTables := convertToSet(tables)
+	actualTables := convertToSet(actualTableNames)
+	if !expectedTables.Equal(actualTables) {
+		// If table doesn't have the same privileges as saved in the state,
+		// we return an empty privileges to force an update.
+		log.Printf(
+			"[DEBUG] role %s expected to have privileges %v on tables %v but actually had privileges on tables %v",
+			role, privileges, tables, actualTableNames,
+		)
+
+		d.Set("tables", schema.NewSet(schema.HashString, []interface{}{}))
+	} else {
+		d.Set("tables", tables)
+	}
+
+	expectedPrivileges := convertToSet(privileges)
+	privilegesOk := true
+	for table, privs := range readTablePrivileges {
+		if !expectedPrivileges.Equal(privs) {
+			privilegesOk = false
+
+			// If privileges are not the same as saved in the state,
+			// we return an empty privileges to force an update.
+			log.Printf(
+				"[DEBUG] role %s on table %s expected to have privileges %v but actually had privileges on tables %v",
+				role, table, privileges, privs,
+			)
+
+			d.Set("privileges", schema.NewSet(schema.HashString, []interface{}{}))
+		}
+	}
+	if privilegesOk {
+		d.Set("privileges", privileges)
+	}
+
+	// If there are no tables, the resource has been destroyed
+	if len(tables) > 0 && len(actualTableNames) == 0 {
+		d.SetId("")
+	}
 
 	return nil
+}
+
+func convertToSet(vals []string) *schema.Set {
+	setValues := make([]interface{}, len(vals))
+	for i := range vals {
+		setValues[i] = vals[i]
+	}
+
+	return schema.NewSet(schema.HashString, setValues)
 }
 
 func readRolePrivileges(txn *sql.Tx, d *schema.ResourceData) error {

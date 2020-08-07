@@ -457,10 +457,20 @@ func createGrantQuery(d *schema.ResourceData, privileges []string, tables []stri
 		)
 	case "TABLE", "SEQUENCE", "FUNCTION":
 		if len(tables) > 0 {
+			schema := d.Get("schema").(string)
+			var tableNames []string
+			for _, table := range tables {
+				if schema == "" {
+					tableNames = append(tableNames, table)
+				} else {
+					tableNames = append(tableNames, fmt.Sprintf("%s.%s", schema, table))
+				}
+			}
+
 			query = fmt.Sprintf(
 				"GRANT %s ON TABLE %s TO %s",
 				strings.Join(privileges, ","),
-				strings.Join(tables, ","),
+				strings.Join(tableNames, ","),
 				pq.QuoteIdentifier(d.Get("role").(string)),
 			)
 		} else {
@@ -493,9 +503,19 @@ func createRevokeQuery(d *schema.ResourceData, tables []string) string {
 		)
 	case "TABLE", "SEQUENCE", "FUNCTION":
 		if len(tables) > 0 {
+			schema := d.Get("schema").(string)
+			var tableNames []string
+			for _, table := range tables {
+				if schema == "" {
+					tableNames = append(tableNames, table)
+				} else {
+					tableNames = append(tableNames, fmt.Sprintf("%s.%s", schema, table))
+				}
+			}
+
 			query = fmt.Sprintf(
 				"REVOKE ALL PRIVILEGES ON TABLE %s FROM %s",
-				strings.Join(tables, ","),
+				strings.Join(tableNames, ","),
 				pq.QuoteIdentifier(d.Get("role").(string)),
 			)
 		} else {

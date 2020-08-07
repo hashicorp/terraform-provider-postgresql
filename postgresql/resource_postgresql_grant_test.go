@@ -95,6 +95,17 @@ func TestCreateGrantQuery(t *testing.T) {
 			tables:     []string{"apples", "oranges"},
 			expected:   fmt.Sprintf("GRANT SELECT,INSERT ON TABLE apples,oranges TO %s", pq.QuoteIdentifier(roleName)),
 		},
+		{
+			resource: schema.TestResourceDataRaw(t, resourcePostgreSQLGrant().Schema, map[string]interface{}{
+				"object_type": "TABLE",
+				"database":    databaseName,
+				"schema":      "test_schema",
+				"role":        roleName,
+			}),
+			privileges: []string{"SELECT", "INSERT"},
+			tables:     []string{"apples", "oranges"},
+			expected:   fmt.Sprintf("GRANT SELECT,INSERT ON TABLE test_schema.apples,test_schema.oranges TO %s", pq.QuoteIdentifier(roleName)),
+		},
 	}
 
 	for _, c := range cases {
@@ -155,6 +166,16 @@ func TestCreateRevokeQuery(t *testing.T) {
 			}),
 			tables:   []string{"apples", "oranges"},
 			expected: fmt.Sprintf("REVOKE ALL PRIVILEGES ON TABLE apples,oranges FROM %s", pq.QuoteIdentifier(roleName)),
+		},
+		{
+			resource: schema.TestResourceDataRaw(t, resourcePostgreSQLGrant().Schema, map[string]interface{}{
+				"object_type": "TABLE",
+				"database":    databaseName,
+				"schema":      "test_schema",
+				"role":        roleName,
+			}),
+			tables:   []string{"apples", "oranges"},
+			expected: fmt.Sprintf("REVOKE ALL PRIVILEGES ON TABLE test_schema.apples,test_schema.oranges FROM %s", pq.QuoteIdentifier(roleName)),
 		},
 	}
 

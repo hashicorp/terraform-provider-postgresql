@@ -261,20 +261,20 @@ func TestAccTableGrants(t *testing.T) {
 		schema      = "test_schema"
 		object_type = "table"
 		tables      = ["test_1", "test_2"]
-		privileges  = ["REFERENCES", "TRIGGER"]
+		privileges  = ["SELECT", "INSERT"]
 	}
 	`, dbName, roleName)
 
-	// var testTableGrantSingleTable = fmt.Sprintf(`
-	// resource "postgresql_grant" "test" {
-	// 	database    = "%s"
-	// 	role        = "%s"
-	// 	schema      = "test_schema"
-	// 	object_type = "table"
-	// 	tables      = ["test_1"]
-	// 	privileges  = ["REFERENCES"]
-	// }
-	// `, dbName, roleName)
+	var testTableGrantSingleTable = fmt.Sprintf(`
+	resource "postgresql_grant" "test" {
+		database    = "%s"
+		role        = "%s"
+		schema      = "test_schema"
+		object_type = "table"
+		tables      = ["test_1"]
+		privileges  = ["UPDATE"]
+	}
+	`, dbName, roleName)
 
 	resource.Test(t, resource.TestCase{
 		PreCheck: func() {
@@ -287,12 +287,46 @@ func TestAccTableGrants(t *testing.T) {
 				Config: testTableGrantManyTables,
 				Check: resource.ComposeTestCheckFunc(
 					resource.TestCheckResourceAttr(
-						"postgresql_grant.test", "id", fmt.Sprintf("%s_%s_test_schema_table", roleName, dbName),
+						"postgresql_grant.test", "id", fmt.Sprintf("%s:%s:test_schema:table:test_1,test_2:INSERT,SELECT", roleName, dbName),
+					),
+					resource.TestCheckResourceAttr("postgresql_grant.test", "privileges.#", "2"),
+					resource.TestCheckResourceAttr("postgresql_grant.test", "privileges.3138006342", "SELECT"),
+					resource.TestCheckResourceAttr("postgresql_grant.test", "privileges.892623219", "INSERT"),
+					resource.TestCheckResourceAttr("postgresql_grant.test", "tables.#", "2"),
+					resource.TestCheckResourceAttr("postgresql_grant.test", "tables.908892182", "test_1"),
+					resource.TestCheckResourceAttr("postgresql_grant.test", "tables.2938489260", "test_2"),
+					func(*terraform.State) error {
+						return testCheckTablesPrivileges(t, dbSuffix, testTables, []string{"SELECT", "INSERT"})
+					},
+				),
+			},
+			{
+				Config: testTableGrantSingleTable,
+				Check: resource.ComposeTestCheckFunc(
+					resource.TestCheckResourceAttr(
+						"postgresql_grant.test", "id", fmt.Sprintf("%s:%s:test_schema:table:test_1:UPDATE", roleName, dbName),
 					),
 					resource.TestCheckResourceAttr("postgresql_grant.test", "privileges.#", "1"),
-					resource.TestCheckResourceAttr("postgresql_grant.test", "privileges.3138006342", "SELECT"),
+					resource.TestCheckResourceAttr("postgresql_grant.test", "privileges.1759376126", "UPDATE"),
+					resource.TestCheckResourceAttr("postgresql_grant.test", "tables.#", "1"),
+					resource.TestCheckResourceAttr("postgresql_grant.test", "tables.908892182", "test_1"),
 					func(*terraform.State) error {
-						return testCheckTablesPrivileges(t, dbSuffix, testTables, []string{"SELECT"})
+						return testCheckTablesPrivileges(t, dbSuffix, testTables[:1], []string{"UPDATE"})
+					},
+				),
+			},
+			// Finally reapply the first step to be sure that extra privileges are correctly granted to the additional table.
+			{
+				Config: testTableGrantManyTables,
+				Check: resource.ComposeTestCheckFunc(
+					resource.TestCheckResourceAttr("postgresql_grant.test", "privileges.#", "2"),
+					resource.TestCheckResourceAttr("postgresql_grant.test", "privileges.3138006342", "SELECT"),
+					resource.TestCheckResourceAttr("postgresql_grant.test", "privileges.892623219", "INSERT"),
+					resource.TestCheckResourceAttr("postgresql_grant.test", "tables.#", "2"),
+					resource.TestCheckResourceAttr("postgresql_grant.test", "tables.908892182", "test_1"),
+					resource.TestCheckResourceAttr("postgresql_grant.test", "tables.2938489260", "test_2"),
+					func(*terraform.State) error {
+						return testCheckTablesPrivileges(t, dbSuffix, testTables, []string{"SELECT", "INSERT"})
 					},
 				),
 			},

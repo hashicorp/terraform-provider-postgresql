@@ -2,6 +2,7 @@ package postgresql
 
 import (
 	"bytes"
+	"context"
 	"database/sql"
 	"fmt"
 	"log"
@@ -11,6 +12,10 @@ import (
 
 	"github.com/blang/semver"
 	_ "github.com/lib/pq" //PostgreSQL db
+
+	"gocloud.dev/postgres"
+	_ "gocloud.dev/postgres/awspostgres"
+	_ "gocloud.dev/postgres/gcppostgres"
 )
 
 type featureName uint
@@ -86,9 +91,14 @@ type Config struct {
 	Timeout           int
 	ConnectTimeoutSec int
 	MaxConns          int
-	ExpectedVersion   semver.Version
-	SSLClientCert     *ClientCertificateConfig
-	SSLRootCertPath   string
+
+	// Connection Strings for GCP GoCloud or AWS
+	GCPConnectionString string
+	AWSConnectionString string
+
+	ExpectedVersion semver.Version
+	SSLClientCert   *ClientCertificateConfig
+	SSLRootCertPath string
 }
 
 // Client struct holding connection string
@@ -122,9 +132,18 @@ func (c *Config) NewClient(database string) (*Client, error) {
 	dsn := c.connStr(database)
 	dbEntry, found := dbRegistry[dsn]
 	if !found {
-		db, err := sql.Open("postgres", dsn)
-		if err != nil {
-			return nil, fmt.Errorf("Error connecting to PostgreSQL server: %w", err)
+		var db *sql.DB
+		var err error
+		if strings.HasPrefix(dsn, "awspostgres") || strings.HasPrefix(dsn, "gcppostgres") {
+			db, err = postgres.Open(context.Background(), dsn)
+			if err != nil {
+				return nil, fmt.Errorf("Error connecting to database through gocloud: %w", err)
+			}
+		} else {
+			db, err = sql.Open("postgres", dsn)
+			if err != nil {
+				return nil, fmt.Errorf("Error connecting to PostgreSQL server: %w", err)
+			}
 		}
 
 		// We don't want to retain connection
@@ -289,6 +308,12 @@ func (c *Config) connStr(database string) string {
 		}
 
 		connStr = fmt.Sprintf(dsnFmt, connValues...)
+	}
+
+	if c.AWSConnectionString != "" {
+		connStr = fmt.Sprintf("awspostgres://%s:%s@%s/%s", c.Username, c.Password, c.AWSConnectionString, database)
+	} else if c.GCPConnectionString != "" {
+		connStr = fmt.Sprintf("gcppostgres://%s:%s@%s/%s", c.Username, c.Password, c.GCPConnectionString, database)
 	}
 
 	return connStr

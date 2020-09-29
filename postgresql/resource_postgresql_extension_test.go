@@ -210,6 +210,8 @@ func TestAccPostgresqlExtension_Database(t *testing.T) {
 }
 
 func TestAccPostgresqlExtension_DropCascade(t *testing.T) {
+	skipIfNotAcc(t)
+
 	var testAccPostgresqlExtensionConfig = `
 resource "postgresql_extension" "cascade" {
   name = "pgcrypto"
@@ -217,7 +219,11 @@ resource "postgresql_extension" "cascade" {
 }
 `
 	resource.Test(t, resource.TestCase{
-		PreCheck:     func() { testAccPreCheck(t) },
+		PreCheck: func() {
+			testAccPreCheck(t)
+			testCheckCompatibleVersion(t, featureExtension)
+			testSuperuserPreCheck(t)
+		},
 		Providers:    testAccProviders,
 		CheckDestroy: testAccCheckPostgresqlExtensionDestroy,
 		Steps: []resource.TestStep{

@@ -379,6 +379,7 @@ func resourcePostgreSQLSchemaReadImpl(d *schema.ResourceData, c *Client) error {
 		d.Set(schemaNameAttr, schemaName)
 		d.Set(schemaOwnerAttr, schemaOwner)
 		d.Set(schemaDatabaseAttr, database)
+		d.Set(schemaPolicyAttr, schemaPolicies)
 		d.SetId(generateSchemaID(d, c))
 
 		return nil

@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"sort"
 	"strings"
 
 	"github.com/hashicorp/terraform-plugin-sdk/helper/schema"
@@ -26,6 +27,8 @@ var objectTypes = map[string]string{
 	"function": "f",
 	"type":     "T",
 }
+
+const tableGrantIdDelimiter = ":"
 
 func resourcePostgreSQLGrant() *schema.Resource {
 	return &schema.Resource{
@@ -60,6 +63,15 @@ func resourcePostgreSQLGrant() *schema.Resource {
 				ForceNew:     true,
 				ValidateFunc: validation.StringInSlice(allowedObjectTypes, false),
 				Description:  "The PostgreSQL object type to grant the privileges on (one of: " + strings.Join(allowedObjectTypes, ", ") + ")",
+			},
+			"tables": {
+				Type:        schema.TypeSet,
+				Elem:        &schema.Schema{Type: schema.TypeString},
+				Set:         schema.HashString,
+				MinItems:    0,
+				Optional:    true,
+				ForceNew:    true,
+				Description: "The PostgreSQL tables the grant applies to. If none are specified, the grant applies to all tables.",
 			},
 			"privileges": &schema.Schema{
 				Type:        schema.TypeSet,
@@ -216,7 +228,7 @@ func resourcePostgreSQLGrantDelete(d *schema.ResourceData, meta interface{}) err
 	return nil
 }
 
-func readDatabaseRolePriviges(txn *sql.Tx, d *schema.ResourceData) error {
+func readDatabaseRolePrivileges(txn *sql.Tx, d *schema.ResourceData) error {
 	query := `
 SELECT privilege_type
 FROM (
@@ -243,12 +255,118 @@ JOIN pg_roles ON grantee = pg_roles.oid WHERE rolname = $2
 	return nil
 }
 
+func readTableRolePrivileges(txn *sql.Tx, d *schema.ResourceData) error {
+	role, _, schemaName, _, tables, privileges := readTableGrantID(d)
+
+	var privilegeSelects []string
+	for _, privilege := range allowedPrivileges["table"] {
+		if privilege == "ALL" {
+			continue
+		}
+
+		privilegeSelects = append(privilegeSelects, fmt.Sprintf(
+			"CASE WHEN has_table_privilege(usename, schemaname || '.' || tablename, '%s') THEN '%s' END",
+			privilege,
+			privilege,
+		))
+	}
+	var quotedTables []string
+	for _, t := range tables {
+		quotedTables = append(quotedTables, fmt.Sprintf("'%s'", t))
+	}
+
+	query := fmt.Sprintf(`
+SELECT pg_tables.tablename,
+  ARRAY_REMOVE(ARRAY [%s], NULL)
+FROM pg_user
+CROSS JOIN pg_tables
+WHERE pg_tables.schemaname= $1
+  AND pg_tables.tablename IN (%s)
+  AND pg_user.usename = $2
+`,
+		strings.Join(privilegeSelects, ","),
+		strings.Join(quotedTables, ","),
+	)
+
+	rows, err := txn.Query(query, schemaName, role)
+	if err != nil {
+		return fmt.Errorf("could not read table privileges: %w", err)
+	}
+
+	readTablePrivileges := make(map[string]*schema.Set, len(tables))
+	var actualTableNames []string
+
+	for rows.Next() {
+		var tableName string
+		var privilegesArray pq.ByteaArray
+
+		if err := rows.Scan(&tableName, &privilegesArray); err != nil {
+			return fmt.Errorf("could not scan table privileges: %w", err)
+		}
+
+		privilegesSet := pgArrayToSet(privilegesArray)
+		readTablePrivileges[tableName] = privilegesSet
+		actualTableNames = append(actualTableNames, tableName)
+	}
+
+	expectedTables := convertToSet(tables)
+	actualTables := convertToSet(actualTableNames)
+	// If tables do not have the same privileges as saved in the state,
+	// we return an empty privileges to force an update.
+	if !expectedTables.Equal(actualTables) {
+		log.Printf(
+			"[DEBUG] role %s expected to have privileges %v on tables %v but actually had privileges on tables %v",
+			role, privileges, tables, actualTableNames,
+		)
+
+		d.Set("tables", schema.NewSet(schema.HashString, []interface{}{}))
+	} else {
+		d.Set("tables", tables)
+	}
+
+	expectedPrivileges := convertToSet(privileges)
+	privilegesOk := true
+	for table, privs := range readTablePrivileges {
+		// If privileges are not the same as saved in the state,
+		// we return an empty privileges to force an update.
+		if !expectedPrivileges.Equal(privs) {
+			privilegesOk = false
+
+			log.Printf(
+				"[DEBUG] role %s on table %s expected to have privileges %v but actually had privileges on tables %v",
+				role, table, privileges, privs,
+			)
+
+			d.Set("privileges", schema.NewSet(schema.HashString, []interface{}{}))
+		}
+	}
+	if privilegesOk {
+		d.Set("privileges", privileges)
+	}
+
+	// If there are no tables, the resource has been destroyed
+	if len(tables) > 0 && len(actualTableNames) == 0 {
+		d.SetId("")
+	}
+
+	return nil
+}
+
+func convertToSet(vals []string) *schema.Set {
+	setValues := make([]interface{}, len(vals))
+	for i := range vals {
+		setValues[i] = vals[i]
+	}
+
+	return schema.NewSet(schema.HashString, setValues)
+}
+
 func readRolePrivileges(txn *sql.Tx, d *schema.ResourceData) error {
 	var query string
 	object_type := strings.ToUpper(d.Get("object_type").(string))
 	switch object_type {
 	case "DATABASE":
-		return readDatabaseRolePriviges(txn, d)
+		return readDatabaseRolePrivileges(txn, d)
 	case "FUNCTION":
 		query = `
 SELECT pg_proc.proname, array_remove(array_agg(privilege_type), NULL)
@@ -284,6 +402,10 @@ GROUP BY pg_class.relname
 `
 	}
 
+	if d.Get("object_type").(string) == "table" && strings.Contains(d.Id(), tableGrantIdDelimiter) {
+		return readTableRolePrivileges(txn, d)
+	}
+
 	// This returns, for the specified role (rolname),
 	// the list of all object of the specified type (relkind) in the specified schema (namespace)
 	// with the list of the currently applied privileges (aggregation of privilege_type)
@@ -317,13 +439,12 @@ GROUP BY pg_class.relname
 			d.Set("privileges", schema.NewSet(schema.HashString, []interface{}{}))
 			break
 		}
-
 	}
 
 	return nil
 }
 
-func createGrantQuery(d *schema.ResourceData, privileges []string) string {
+func createGrantQuery(d *schema.ResourceData, privileges []string, tables []string) string {
 	var query string
 
 	switch strings.ToUpper(d.Get("object_type").(string)) {
@@ -335,13 +456,32 @@ func createGrantQuery(d *schema.ResourceData, privileges []string) string {
 			pq.QuoteIdentifier(d.Get("role").(string)),
 		)
 	case "TABLE", "SEQUENCE", "FUNCTION":
-		query = fmt.Sprintf(
-			"GRANT %s ON ALL %sS IN SCHEMA %s TO %s",
-			strings.Join(privileges, ","),
-			strings.ToUpper(d.Get("object_type").(string)),
-			pq.QuoteIdentifier(d.Get("schema").(string)),
-			pq.QuoteIdentifier(d.Get("role").(string)),
-		)
+		if len(tables) > 0 {
+			schema := d.Get("schema").(string)
+			var tableNames []string
+			for _, table := range tables {
+				if schema == "" {
+					tableNames = append(tableNames, table)
+				} else {
+					tableNames = append(tableNames, fmt.Sprintf("%s.%s", schema, table))
+				}
+			}
+
+			query = fmt.Sprintf(
+				"GRANT %s ON TABLE %s TO %s",
+				strings.Join(privileges, ","),
+				strings.Join(tableNames, ","),
+				pq.QuoteIdentifier(d.Get("role").(string)),
+			)
+		} else {
+			query = fmt.Sprintf(
+				"GRANT %s ON ALL %sS IN SCHEMA %s TO %s",
+				strings.Join(privileges, ","),
+				strings.ToUpper(d.Get("object_type").(string)),
+				pq.QuoteIdentifier(d.Get("schema").(string)),
+				pq.QuoteIdentifier(d.Get("role").(string)),
+			)
+		}
 	}
 
 	if d.Get("with_grant_option").(bool) == true {
@@ -351,7 +491,7 @@ func createGrantQuery(d *schema.ResourceData, privileges []string) string {
 	return query
 }
 
-func createRevokeQuery(d *schema.ResourceData) string {
+func createRevokeQuery(d *schema.ResourceData, tables []string) string {
 	var query string
 
 	switch strings.ToUpper(d.Get("object_type").(string)) {
@@ -362,34 +502,53 @@ func createRevokeQuery(d *schema.ResourceData) string {
 			pq.QuoteIdentifier(d.Get("role").(string)),
 		)
 	case "TABLE", "SEQUENCE", "FUNCTION":
-		query = fmt.Sprintf(
-			"REVOKE ALL PRIVILEGES ON ALL %sS IN SCHEMA %s FROM %s",
-			strings.ToUpper(d.Get("object_type").(string)),
-			pq.QuoteIdentifier(d.Get("schema").(string)),
-			pq.QuoteIdentifier(d.Get("role").(string)),
-		)
+		if len(tables) > 0 {
+			schema := d.Get("schema").(string)
+			var tableNames []string
+			for _, table := range tables {
+				if schema == "" {
+					tableNames = append(tableNames, table)
+				} else {
+					tableNames = append(tableNames, fmt.Sprintf("%s.%s", schema, table))
+				}
+			}
+
+			query = fmt.Sprintf(
+				"REVOKE ALL PRIVILEGES ON TABLE %s FROM %s",
+				strings.Join(tableNames, ","),
+				pq.QuoteIdentifier(d.Get("role").(string)),
+			)
+		} else {
+			query = fmt.Sprintf(
+				"REVOKE ALL PRIVILEGES ON ALL %sS IN SCHEMA %s FROM %s",
+				strings.ToUpper(d.Get("object_type").(string)),
+				pq.QuoteIdentifier(d.Get("schema").(string)),
+				pq.QuoteIdentifier(d.Get("role").(string)),
+			)
+		}
 	}
 
 	return query
 }
 
 func grantRolePrivileges(txn *sql.Tx, d *schema.ResourceData) error {
-	privileges := []string{}
-	for _, priv := range d.Get("privileges").(*schema.Set).List() {
-		privileges = append(privileges, priv.(string))
-	}
-
-	query := createGrantQuery(d, privileges)
+	privileges := getStringsFromSet(d, "privileges")
+	tables := getStringsFromSet(d, "tables")
+	query := createGrantQuery(d, privileges, tables)
 
 	_, err := txn.Exec(query)
+
 	return err
 }
 
 func revokeRolePrivileges(txn *sql.Tx, d *schema.ResourceData) error {
-	query := createRevokeQuery(d)
+	tables := getStringsFromSet(d, "tables")
+	query := createRevokeQuery(d, tables)
+
 	if _, err := txn.Exec(query); err != nil {
 		return fmt.Errorf("could not execute revoke query: %w", err)
 	}
+
 	return nil
 }
 
@@ -454,7 +613,33 @@ func generateGrantID(d *schema.ResourceData) string {
 	}
 	parts = append(parts, objectType)
 
-	return strings.Join(parts, "_")
+	tables := getStringsFromSet(d, "tables")
+	if len(tables) == 0 {
+		return strings.Join(parts, "_")
+	}
+
+	privileges := getStringsFromSet(d, "privileges")
+
+	sort.Strings(tables)
+	sort.Strings(privileges)
+
+	parts = append(parts, strings.Join(tables, ","))
+	parts = append(parts, strings.Join(privileges, ","))
+
+	return strings.Join(parts, tableGrantIdDelimiter)
+}
+
+func readTableGrantID(d *schema.ResourceData) (string, string, string, string, []string, []string) {
+	parts := strings.Split(d.Id(), tableGrantIdDelimiter)
+
+	role := parts[0]
+	database := parts[1]
+	schema := parts[2]
+	objectType := parts[3]
+	tables := strings.Split(parts[4], ",")
+	privileges := strings.Split(parts[5], ",")
+
+	return role, database, schema, objectType, tables, privileges
 }
 
 func getRolesToGrantForSchema(txn *sql.Tx, schemaName string) ([]string, error) {
@@ -475,4 +660,12 @@ func getRolesToGrantForSchema(txn *sql.Tx, schemaName string) ([]string, error) 
 	}
 
 	return owners, nil
+}
+
+func getStringsFromSet(d *schema.ResourceData, setName string) []string {
+	strings := []string{}
+	for _, str := range d.Get(setName).(*schema.Set).List() {
+		strings = append(strings, str.(string))
+	}
+	return strings
 }

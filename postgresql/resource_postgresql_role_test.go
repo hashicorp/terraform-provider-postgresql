@@ -104,6 +104,9 @@ resource "postgresql_role" "update_role" {
   login = true
   password = "toto"
   valid_until = "2099-05-04 12:00:00+00"
+  parameters = {
+	  application_name = "First_app"
+  }
 }
 `
 
@@ -120,6 +123,11 @@ resource "postgresql_role" "update_role" {
   roles = ["${postgresql_role.group_role.name}"]
   search_path = ["mysearchpath"]
   statement_timeout = 30000
+  parameters = {
+	application_name = "Final"
+	log_statement = "all"
+	role = "${postgresql_role.group_role.name}"
+  }
 }
 `
 	resource.Test(t, resource.TestCase{
@@ -407,6 +415,12 @@ resource "postgresql_role" "sub_role" {
 		"${postgresql_role.myrole2.id}",
 		"${postgresql_role.role_simple.id}",
 	]
+	parameters = {
+		application_name = "aaa"
+		role = "${postgresql_role.myrole2.id}"
+		//setting this will raise validation error	
+		//search_path = "aaa"
+	}
 }
 
 resource "postgresql_role" "role_with_search_path" {

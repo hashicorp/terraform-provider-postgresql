@@ -33,6 +33,7 @@ const (
 	roleRolesAttr             = "roles"
 	roleSearchPathAttr        = "search_path"
 	roleStatementTimeoutAttr  = "statement_timeout"
+	roleWorkMemAttr           = "work_mem"
 
 	// Deprecated options
 	roleDepEncryptedAttr = "encrypted"
@@ -158,6 +159,12 @@ func resourcePostgreSQLRole() *schema.Resource {
 				Type:         schema.TypeInt,
 				Optional:     true,
 				Description:  "Abort any statement that takes more than the specified number of milliseconds",
+				ValidateFunc: validation.IntAtLeast(0),
+			},
+			roleWorkMemAttr: {
+				Type:         schema.TypeInt,
+				Optional:     true,
+				Description:  "Specify the amount of memory in bytes to be used for each query for the role",
 				ValidateFunc: validation.IntAtLeast(0),
 			},
 		},
@@ -291,6 +298,10 @@ func resourcePostgreSQLRoleCreate(d *schema.ResourceData, meta interface{}) erro
 	}
 
 	if err = setStatementTimeout(txn, d); err != nil {
+		return err
+	}
+
+	if err = setWorkMem(txn, d); err != nil {
 		return err
 	}
 
@@ -455,6 +466,13 @@ func resourcePostgreSQLRoleReadImpl(c *Client, d *schema.ResourceData) error {
 
 	d.Set(roleStatementTimeoutAttr, statementTimeout)
 
+	workMem, err := readWorkMem(roleConfig)
+	if err != nil {
+		return err
+	}
+
+	d.Set(roleWorkMemAttr, workMem)
+
 	d.SetId(roleName)
 
 	password, err := readRolePassword(c, d, roleCanLogin)
@@ -489,6 +507,23 @@ func readStatementTimeout(roleConfig pq.ByteaArray) (int, error) {
 			res, err := strconv.Atoi(result[0])
 			if err != nil {
 				return -1, fmt.Errorf("Error reading statement_timeout: %w", err)
+			}
+			return res, nil
+		}
+	}
+	return 0, nil
+}
+
+// readWorkMem searches for a work_mem entry in the rolconfig array.
+// In case no such value is present, it returns nil.
+func readWorkMem(roleConfig pq.ByteaArray) (int, error) {
+	for _, v := range roleConfig {
+		config := string(v)
+		if strings.HasPrefix(config, roleWorkMemAttr) {
+			var result = strings.Split(strings.TrimPrefix(config, roleWorkMemAttr+"="), ", ")
+			res, err := strconv.Atoi(result[0])
+			if err != nil {
+				return -1, fmt.Errorf("Error reading work_mem: %w", err)
 			}
 			return res, nil
 		}
@@ -624,6 +659,10 @@ func resourcePostgreSQLRoleUpdate(d *schema.ResourceData, meta interface{}) erro
 	}
 
 	if err = setStatementTimeout(txn, d); err != nil {
+		return err
+	}
+
+	if err = setWorkMem(txn, d); err != nil {
 		return err
 	}
 
@@ -946,6 +985,31 @@ func setStatementTimeout(txn *sql.Tx, d *schema.ResourceData) error {
 		)
 		if _, err := txn.Exec(sql); err != nil {
 			return fmt.Errorf("could not reset statement_timeout for %s: %w", roleName, err)
+		}
+	}
+	return nil
+}
+
+func setWorkMem(txn *sql.Tx, d *schema.ResourceData) error {
+	if !d.HasChange(roleWorkMemAttr) {
+		return nil
+	}
+
+	roleName := d.Get(roleNameAttr).(string)
+	workMem := d.Get(roleWorkMemAttr).(int)
+	if workMem != 0 {
+		sql := fmt.Sprintf(
+			"ALTER ROLE %s SET work_mem TO %d", pq.QuoteIdentifier(roleName), workMem,
+		)
+		if _, err := txn.Exec(sql); err != nil {
+			return fmt.Errorf("could not set work_mem %d for %s: %w", workMem, roleName, err)
+		}
+	} else {
+		sql := fmt.Sprintf(
+			"ALTER ROLE %s RESET work_mem", pq.QuoteIdentifier(roleName),
+		)
+		if _, err := txn.Exec(sql); err != nil {
+			return fmt.Errorf("could not reset work_mem for %s: %w", roleName, err)
 		}
 	}
 	return nil

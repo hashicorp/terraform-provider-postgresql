@@ -23,6 +23,7 @@ const (
 	roleEncryptedPassAttr     = "encrypted_password"
 	roleInheritAttr           = "inherit"
 	roleLoginAttr             = "login"
+	roleLogStatementAttr      = "log_statement"
 	roleNameAttr              = "name"
 	rolePasswordAttr          = "password"
 	roleReplicationAttr       = "replication"
@@ -37,6 +38,13 @@ const (
 	// Deprecated options
 	roleDepEncryptedAttr = "encrypted"
 )
+
+var allowedLogStatementOpts = []string{
+	"none",
+	"ddl",
+	"mod",
+	"all",
+}
 
 func resourcePostgreSQLRole() *schema.Resource {
 	return &schema.Resource{
@@ -129,6 +137,13 @@ func resourcePostgreSQLRole() *schema.Resource {
 				Optional:    true,
 				Default:     false,
 				Description: "Determine whether a role is allowed to log in",
+			},
+			roleLogStatementAttr: {
+				Type:         schema.TypeString,
+				Optional:     true,
+				Default:      "none",
+				ValidateFunc: validation.StringInSlice(allowedLogStatementOpts, false),
+				Description:  "Sets the log level for SQL statements",
 			},
 			roleReplicationAttr: {
 				Type:        schema.TypeBool,
@@ -294,6 +309,10 @@ func resourcePostgreSQLRoleCreate(d *schema.ResourceData, meta interface{}) erro
 		return err
 	}
 
+	if err = setRoleLogStatement(txn, d); err != nil {
+		return err
+	}
+
 	if err = txn.Commit(); err != nil {
 		return fmt.Errorf("could not commit transaction: %w", err)
 	}
@@ -447,6 +466,7 @@ func resourcePostgreSQLRoleReadImpl(c *Client, d *schema.ResourceData) error {
 	d.Set(roleBypassRLSAttr, roleBypassRLS)
 	d.Set(roleRolesAttr, pgArrayToSet(roleRoles))
 	d.Set(roleSearchPathAttr, readSearchPath(roleConfig))
+	d.Set(roleLogStatementAttr, readLogStatement(roleConfig, d.Get(roleLogStatementAttr).(string)))
 
 	statementTimeout, err := readStatementTimeout(roleConfig)
 	if err != nil {
@@ -477,6 +497,19 @@ func readSearchPath(roleConfig pq.ByteaArray) []string {
 		}
 	}
 	return nil
+}
+
+// readLogStatement searches for a log_statement entry in the rolconfig array.
+// In case no such value is present, it returns empty.
+func readLogStatement(roleConfig pq.ByteaArray, defaultValue string) string {
+	for _, v := range roleConfig {
+		config := string(v)
+		if strings.HasPrefix(config, roleLogStatementAttr) {
+			var result = strings.TrimPrefix(config, roleLogStatementAttr+"=")
+			return result
+		}
+	}
+	return defaultValue
 }
 
 // readStatementTimeout searches for a statement_timeout entry in the rolconfig array.
@@ -595,6 +628,10 @@ func resourcePostgreSQLRoleUpdate(d *schema.ResourceData, meta interface{}) erro
 	}
 
 	if err := setRoleLogin(txn, d); err != nil {
+		return err
+	}
+
+	if err := setRoleLogStatement(txn, d); err != nil {
 		return err
 	}
 
@@ -782,6 +819,22 @@ func setRoleLogin(txn *sql.Tx, d *schema.ResourceData) error {
 	sql := fmt.Sprintf("ALTER ROLE %s WITH %s", pq.QuoteIdentifier(roleName), tok)
 	if _, err := txn.Exec(sql); err != nil {
 		return fmt.Errorf("Error updating role LOGIN: %w", err)
+	}
+
+	return nil
+}
+
+func setRoleLogStatement(txn *sql.Tx, d *schema.ResourceData) error {
+	if !d.HasChange(roleLogStatementAttr) {
+		return nil
+	}
+
+	level := d.Get(roleLogStatementAttr).(string)
+
+	roleName := d.Get(roleNameAttr).(string)
+	sql := fmt.Sprintf("ALTER ROLE %s SET log_statement TO %s", pq.QuoteIdentifier(roleName), pq.QuoteIdentifier(level))
+	if _, err := txn.Exec(sql); err != nil {
+		return errwrap.Wrapf("Error updating role log_statement: {{err}}", err)
 	}
 
 	return nil
